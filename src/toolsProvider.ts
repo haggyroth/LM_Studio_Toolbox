@@ -12,84 +12,20 @@ import { rankFuzzyMatches } from "./fuzzySearch";
 import { extractHandoffMessage } from "./handoffMessage";
 import { parseSubAgentResponseMessage, type ParsedToolCall } from "./subAgentToolCallParser";
 import { validateToolCall } from "./toolCallValidator";
+import { backgroundCommands, generateId, BackgroundCommand } from "./backgroundCommands";
 
 import type { Browser, Page } from "puppeteer";
 
 // --- Security Helper ---
-
-/**
- * Encapsulates protected-path logic to avoid global mutable state,
- * which would cause race conditions if multiple plugin instances run concurrently.
- * Uses path.relative for robust boundary detection instead of string matching.
- */
-class PathGuard {
-  private protectedPaths: string[] = [];
-  private baseDir: string;
-
-  constructor(baseDir: string, configValue: string = "") {
-    this.baseDir = resolve(baseDir);
-    this.setProtectedPaths(configValue);
-  }
-
-  private setProtectedPaths(configValue: string) {
-    this.protectedPaths = configValue
-      .split("\n")
-      .map(p => p.trim().replace(/\/$/, ""))
-      .filter(p => p.length > 0)
-      // Resolve against baseDir immediately to standardize all protected paths
-      .map(p => resolve(this.baseDir, p));
-  }
-
-  public isPathProtected(requestedPath: string): boolean {
-    if (this.protectedPaths.length === 0) return false;
-
-    // Resolve the requested path to an absolute path before checking
-    const absoluteReq = resolve(this.baseDir, requestedPath);
-
-    for (const protectedPath of this.protectedPaths) {
-      const rel = relative(protectedPath, absoluteReq);
-
-      // If relative path doesn't start with '..' and isn't absolute,
-      // the requested path is inside the protected directory boundary.
-      // We also check for an exact match (rel === "").
-      if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  public validatePath(requestedPath: string): string {
-    const resolved = resolve(this.baseDir, requestedPath);
-
-    // 1. Check for directory traversal outside the base workspace
-    const relToBase = relative(this.baseDir, resolved);
-    if (relToBase.startsWith("..") || isAbsolute(relToBase)) {
-      throw new Error(`Access Denied: Path '${resolved}' attempts to escape the base directory.`);
-    }
-
-    // 2. Check against protected zones
-    if (this.isPathProtected(resolved)) {
-      throw new Error(`Access Denied: Path '${resolved}' is in a protected zone.`);
-    }
-
-    return resolved;
-  }
-}
-
-// Module-level sentinel so the guard can be referenced by the free validatePath shim below.
-let pathGuard: PathGuard | null = null;
-
-// Thin shim so all existing call-sites (validatePath(cwd, path)) continue to work
-// without modification. The guard is always initialised before any tool runs.
 function validatePath(baseDir: string, requestedPath: string): string {
-  if (pathGuard) return pathGuard.validatePath(requestedPath);
-  // Fallback: plain boundary check only (no protected paths)
   const resolved = resolve(baseDir, requestedPath);
+  
+  // Use relative pathing to ensure the resolved path stays within baseDir
   const rel = relative(baseDir, resolved);
   if (rel.startsWith("..") || isAbsolute(rel)) {
     throw new Error(`Access Denied: Path '${requestedPath}' is outside the workspace.`);
   }
+  
   return resolved;
 }
 
@@ -203,10 +139,6 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
   const enableLocalRag = pluginConfig.get("enableLocalRag");
   const enableSecondary = pluginConfig.get("enableSecondaryAgent");
   const embeddingModelName = pluginConfig.get("embeddingModel");
-  const protectedPathsConfig = (pluginConfig.get("protectedPaths") as string) || "";
-  // Instantiate PathGuard; this also re-initialises on every plugin reload,
-  // so config changes are picked up without a full LM Studio restart.
-  pathGuard = new PathGuard(currentWorkingDirectory, protectedPathsConfig);
   // const searchApiKey = pluginConfig.get("searchApiKey"); // Used inside tool
 
   // Master override
@@ -787,26 +719,54 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
       output this full path to the user.
     `,
     parameters: {
-      file_name: z.string(),
-      content: z.string(),
+      file_name: z.string().optional(),
+      content: z.string().optional(),
+      files: z.array(z.object({ file_name: z.string(), content: z.string() })).optional().describe("For saving multiple files at once. E.g. [{file_name: 'a.txt', content: 'hello'}]"),
     },
-    implementation: async ({ file_name, content }) => {
+    implementation: async ({ file_name, content, files }) => {
+
+      const filesToSave = Array.isArray(files) ? files : [];
+      if (file_name && content) {
+        filesToSave.push({ file_name, content });
+      }
+
+      if (filesToSave.length === 0) {
+        return { error: "Must provide either file_name and content, or a files array." };
+      }
+
+      const savedPaths: string[] = [];
+      const errors: string[] = [];
+
+      for (const file of filesToSave) {
 
       // Validate filename
-      if (!file_name || file_name.trim().length === 0) {
-        return { error: "Filename cannot be empty" };
+      if (!file.file_name || file.file_name.trim().length === 0) {
+        errors.push(`Filename cannot be empty`);
+        continue;
       }
 
-      if (/[ \*\?<>|"]/.test(file_name)) {
-        return { error: "Filename contains invalid characters" };
+      if (file.file_name && /[ \*\?<>|"]/.test(file.file_name)) {
+        errors.push("Filename " + file.file_name + " contains invalid characters");
       }
 
-      const filePath = validatePath(currentWorkingDirectory, file_name);
-      await mkdir(dirname(filePath), { recursive: true });
-      await writeFile(filePath, content, "utf-8");
+        try {
+          const filePath = validatePath(currentWorkingDirectory, file.file_name);
+          await mkdir(dirname(filePath), { recursive: true });
+          await writeFile(filePath, file.content, "utf-8");
+          savedPaths.push(filePath);
+        } catch (e) {
+          errors.push(`Failed to save ${file.file_name}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (errors.length > 0 && savedPaths.length === 0) {
+        return { error: errors.join("\n") };
+      }
+
       return {
         success: true,
-        path: filePath,
+        paths: savedPaths,
+        errors: errors.length > 0 ? errors : undefined,
       };
     },
   });
@@ -853,6 +813,246 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     },
   });
   tools.push(replaceTextTool);
+
+  const multiReplaceTextTool = tool({
+    name: "multi_replace_text",
+    description: text`
+      Replace multiple scattered text blocks in a single file safely.
+      Each replacement must specify start_line, end_line, old_string, and new_string.
+      The old_string must perfectly match what is currently in the file.
+    `,
+    parameters: {
+      file_name: z.string(),
+      replacements: z.array(z.object({
+        start_line: z.number().int().min(1),
+        end_line: z.number().int().min(1),
+        old_string: z.string(),
+        new_string: z.string()
+      })).describe("Array of replacements to make in the file")
+    },
+    implementation: async ({ file_name, replacements }) => {
+      try {
+        const filePath = validatePath(currentWorkingDirectory, file_name);
+        const content = await readFile(filePath, "utf-8");
+        let lines = content.split("\n");
+        let errors = [];
+        
+        // Sort replacements from bottom to top to avoid line index shifts!
+        const sortedReplacements = [...replacements].sort((a, b) => b.start_line - a.start_line);
+        
+        for (const rep of sortedReplacements) {
+          if (rep.start_line > rep.end_line) {
+            errors.push(`Invalid range: start_line ${rep.start_line} > end_line ${rep.end_line}`);
+            continue;
+          }
+          const chunk = lines.slice(rep.start_line - 1, rep.end_line).join("\n");
+          if (!chunk.includes(rep.old_string)) {
+            errors.push(`Could not find old_string between lines ${rep.start_line}-${rep.end_line}`);
+            continue;
+          }
+          // Only replace the first occurrence in the exact block
+          const newChunk = chunk.replace(rep.old_string, rep.new_string);
+          const newChunkLines = newChunk.split("\n");
+          
+          lines.splice(rep.start_line - 1, rep.end_line - rep.start_line + 1, ...newChunkLines);
+        }
+        
+        if (errors.length > 0) {
+          return { error: "Replacements failed:\n" + errors.join("\n") };
+        }
+        
+        await writeFile(filePath, lines.join("\n"), "utf-8");
+        return { success: true, message: `Applied ${replacements.length} replacements to ${file_name}` };
+      } catch (e) {
+        return { error: `Failed to multi-replace: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    }
+  });
+  tools.push(multiReplaceTextTool);
+
+  const searchDirectoryTool = tool({
+    name: "search_directory",
+    description: text`
+      Search an entire directory for a regex pattern (like grep).
+      Returns matching file paths and line numbers.
+    `,
+    parameters: {
+      directory_path: z.string().optional().describe("Directory to search. Defaults to workspace root."),
+      pattern: z.string().describe("Regex pattern or string to search for"),
+      use_regex: z.boolean().optional().default(false)
+    },
+    implementation: async ({ directory_path, pattern, use_regex }) => {
+      try {
+        const targetDir = directory_path ? validatePath(currentWorkingDirectory, directory_path) : currentWorkingDirectory;
+        const regex = new RegExp(use_regex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\  tools.push(replaceTextTool);'), 'g');
+        const results: string[] = [];
+        let searchedCount = 0;
+        
+        async function search(dir: string) {
+          const files = await readdir(dir);
+          for (const file of files) {
+            if (file === "node_modules" || file === ".git" || file.startsWith(".")) continue;
+            const fullPath = join(dir, file);
+            const st = await stat(fullPath);
+            if (st.isDirectory()) {
+              await search(fullPath);
+            } else if (st.isFile()) {
+              if (st.size > 2000000) continue; // Skip large files > 2MB
+              try {
+                const content = await readFile(fullPath, "utf-8");
+                if (content.includes('\0')) continue; // Skip binary
+                
+                const lines = content.split('\n');
+                for (let i = 0; i < lines.length; i++) {
+                  if (lines[i].match(regex)) {
+                    results.push(`${relative(currentWorkingDirectory, fullPath)}:${i+1} => ${lines[i].trim()}`);
+                    if (results.length >= 100) return; // Limit output
+                  }
+                }
+                searchedCount++;
+              } catch (e) {}
+            }
+          }
+        }
+        
+        await search(targetDir);
+        
+        if (results.length === 0) return { message: `No matches found. Searched ${searchedCount} files.` };
+        return { matches: results, message: `Found ${results.length} matches across ${searchedCount} files searched.` };
+      } catch (e) {
+        return { error: `Search failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    }
+  });
+  tools.push(searchDirectoryTool);
+
+  const runBackgroundCommandTool = tool({
+    name: "run_background_command",
+    description: text`
+      Starts a long-running process in the background. The process is not blocked, allowing you to do other things.
+      You MUST provide a timeout (max 10 hours) and a descriptive name.
+    `,
+    parameters: {
+      command: z.string(),
+      timeout_hours: z.number().max(10).describe("MANDATORY: How long the process is allowed to run before being killed."),
+      name: z.string().describe("MANDATORY: A short, descriptive name for the background task (e.g. 'Vite Dev Server')")
+    },
+    implementation: async ({ command, timeout_hours, name }) => {
+      try {
+        if (!timeout_hours) return { error: "timeout_hours is MANDATORY" };
+        if (!name) return { error: "name is MANDATORY" };
+        
+        const timeoutMs = timeout_hours * 60 * 60 * 1000;
+        const id = generateId();
+        
+        const isWindows = os.platform() === "win32";
+        const shellCmd = isWindows ? "cmd.exe" : "sh";
+        const shellArgs = isWindows ? ["/c", command] : ["-c", command];
+        
+        const proc = spawn(shellCmd, shellArgs, { cwd: currentWorkingDirectory });
+        
+        const bgCmd: BackgroundCommand = {
+          id,
+          name,
+          startTime: Date.now(),
+          process: proc,
+          timeoutMs,
+          stdout: "",
+          stderr: "",
+          status: "running" as const
+        };
+        
+        proc.stdout.on("data", (data) => {
+          bgCmd.stdout += data.toString();
+          if (bgCmd.stdout.length > 50000) bgCmd.stdout = bgCmd.stdout.slice(-50000);
+        });
+        
+        proc.stderr.on("data", (data) => {
+          bgCmd.stderr += data.toString();
+          if (bgCmd.stderr.length > 50000) bgCmd.stderr = bgCmd.stderr.slice(-50000);
+        });
+        
+        proc.on("close", (code) => {
+          bgCmd.status = bgCmd.status === "cancelled" || bgCmd.status === "timeout" ? bgCmd.status : "completed";
+          bgCmd.exitCode = code;
+          if (bgCmd.timeoutHandle) clearTimeout(bgCmd.timeoutHandle);
+        });
+        
+        proc.on("error", (err) => {
+          bgCmd.status = "error";
+          bgCmd.stderr += `\nError: ${err.message}`;
+        });
+        
+        bgCmd.timeoutHandle = setTimeout(() => {
+          if (bgCmd.status === "running") {
+            bgCmd.status = "timeout";
+            proc.kill("SIGKILL");
+          }
+        }, timeoutMs);
+        
+        backgroundCommands.set(id, bgCmd);
+        
+        // Wait briefly to catch immediate errors
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        
+        return { 
+          id, 
+          status: bgCmd.status,
+          message: `Command launched. Use check_background_command with ID ${id} to poll output.`,
+          initial_stdout: bgCmd.stdout.slice(-1000),
+          initial_stderr: bgCmd.stderr.slice(-1000)
+        };
+      } catch (e) {
+        return { error: `Failed to launch: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    }
+  });
+  tools.push(runBackgroundCommandTool);
+
+  const checkBackgroundCommandTool = tool({
+    name: "check_background_command",
+    description: "Check the status, stdout, and stderr of a running or completed background command.",
+    parameters: {
+      id: z.string()
+    },
+    implementation: async ({ id }) => {
+      const bgCmd = backgroundCommands.get(id);
+      if (!bgCmd) return { error: `No background command found with ID ${id}` };
+      
+      return {
+        id: bgCmd.id,
+        name: bgCmd.name,
+        status: bgCmd.status,
+        duration_seconds: Math.floor((Date.now() - bgCmd.startTime) / 1000),
+        stdout_tail: bgCmd.stdout.slice(-2000), // last 2000 chars
+        stderr_tail: bgCmd.stderr.slice(-2000),
+        exitCode: bgCmd.exitCode
+      };
+    }
+  });
+  tools.push(checkBackgroundCommandTool);
+
+  const cancelBackgroundCommandTool = tool({
+    name: "cancel_background_command",
+    description: "Kills a running background command.",
+    parameters: {
+      id: z.string()
+    },
+    implementation: async ({ id }) => {
+      const bgCmd = backgroundCommands.get(id);
+      if (!bgCmd) return { error: `No background command found with ID ${id}` };
+      
+      if (bgCmd.status !== "running") return { message: `Command is already ${bgCmd.status}` };
+      
+      bgCmd.status = "cancelled";
+      bgCmd.process.kill("SIGKILL");
+      if (bgCmd.timeoutHandle) clearTimeout(bgCmd.timeoutHandle);
+      
+      return { success: true, message: `Command ${id} killed.` };
+    }
+  });
+  tools.push(cancelBackgroundCommandTool);
+
 
   const listDirectoryTool = tool({
     name: "list_directory",
@@ -902,12 +1102,6 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
   tools.push(readFileTool);
 
   const originalExecuteCommandImplementation = async ({ command, input, timeout_seconds }: { command: string; input?: string; timeout_seconds?: number }) => {
-    // NOTE: Shell-command filtering by string matching is inherently limited
-    // (e.g. `cd /protected && cat secret.txt` can bypass it). Proper isolation
-    // requires a container/chroot. This check covers the most common accidental cases.
-    if (pathGuard && pathGuard.isPathProtected(command)) {
-      return { stdout: "", stderr: `Command blocked: references a protected path.` };
-    }
     const childProcess = spawn(command, [], {
       cwd: currentWorkingDirectory,
       shell: true,
@@ -1139,12 +1333,12 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
 
   const webSearchTool = tool({
     name: "web_search",
-    description: "Search the web using multiple providers (DuckDuckGo, Google, Bing). Uses no-key providers first, then browser providers as fallback.",
+    description: "Search the web using multiple providers (DuckDuckGo, Google, Bing). Uses no-key, no-Chrome providers first, then browser providers as fallback.",
     parameters: {
       query: z.string(),
       providers: z.array(z.enum(["duckduckgo-api", "duckduckgo-fetch", "duckduckgo-html", "google", "bing"]))
         .optional()
-        .describe("Optional: List of specific providers. If omitted, fallback chain is: DDG API -> DDG HTML fetch -> DDG browser -> Google -> Bing."),
+        .describe("Optional: List of specific providers. If omitted, fallback chain is: DDG Fetch (no Chrome) -> DDG API -> DDG browser -> Google -> Bing."),
     },
     implementation: async ({ query, providers }) => {
       type SearchProvider = "duckduckgo-api" | "duckduckgo-fetch" | "duckduckgo-html" | "google" | "bing";
@@ -1364,10 +1558,16 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
           }
         }
       } else {
-        const chain: SearchProvider[] = ["duckduckgo-api", "duckduckgo-fetch", "duckduckgo-html", "google", "bing"];
+        const chain: SearchProvider[] = ["duckduckgo-fetch", "duckduckgo-api", "duckduckgo-html", "google", "bing"];
+        const browserProviders: SearchProvider[] = ["duckduckgo-html", "google", "bing"];
+        let chromeUnavailable = false;
 
         for (let i = 0; i < chain.length; i++) {
           const providerKey = chain[i];
+          if (chromeUnavailable && browserProviders.includes(providerKey)) {
+            logs.push(`[Fallback Chain] Skipping ${providerKey}: Chrome not available on this system.`);
+            continue;
+          }
           const nextProvider = chain[i + 1];
           try {
             logs.push(`[Fallback Chain] Attempting ${providerKey}...`);
@@ -1378,8 +1578,13 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
           } catch (e) {
             const errMsg = e instanceof Error ? e.message : String(e);
             errors.push(`${providerKey}: ${errMsg}`);
-            const nextMsg = nextProvider ? `Falling back to ${nextProvider}...` : "No more providers.";
-            logs.push(`[Fallback Chain] Failed: ${providerKey} - ${errMsg}. ${nextMsg}`);
+            if (/chrome|chromium/i.test(errMsg) && browserProviders.includes(providerKey)) {
+              chromeUnavailable = true;
+              logs.push(`[Fallback Chain] Failed: ${providerKey} - Chrome not available. Skipping all browser-based providers.`);
+            } else {
+              const nextMsg = nextProvider ? `Falling back to ${nextProvider}...` : "No more providers.";
+              logs.push(`[Fallback Chain] Failed: ${providerKey} - ${errMsg}. ${nextMsg}`);
+            }
           }
         }
       }
@@ -2356,7 +2561,7 @@ Always assume relative paths are from this directory.`;
             if (allowedTools.length > 0) {
               const toolsList = allowedTools.join(", ");
               currentSystemPrompt += `\n\n## Allowed Tools\nYou have access to the following tools via JSON output: ${toolsList}.\nRefer to the "Tool Usage" section above for the JSON format.\n`;
-              toolsReminder = `\n\n[SYSTEM REMINDER: You have access to tools: ${toolsList}. If you need information you don't have, USE A TOOL. Do not refuse.]`;
+              toolsReminder = `\n\n[SYSTEM REMINDER: You have access to tools: ${toolsList}. If you need information you don't have, USE A TOOL. Do not refuse. Format tool calls exactly as: {"tool": "tool_name", "args": {"arg_name": "value"}}]`;
             }
             if (allowWeb && allowSubAgentBrowserControl && allowBrowserControl) {
               currentSystemPrompt += `\n\n## Browser Navigation Rule\nFor multi-step browsing/navigation, you MUST use browser_session_open -> browser_session_control -> browser_session_close.\nUse browser_open_page only for one-shot page reads.`;
@@ -2364,6 +2569,8 @@ Always assume relative paths are from this directory.`;
           }
 
           currentSystemPrompt += `\n\n## Optional Handoff Message\nIf you want the main agent to relay your findings, include either:\n1) [HANDOFF_MESSAGE]...[/HANDOFF_MESSAGE]\nOR\n2) JSON with a \`handoff_message\` field (optionally with \`response\` or \`final_response\`).`;
+
+          currentSystemPrompt += `\n\n## Task Completion & Early Exit\nIf you have successfully completed your task, output 'TASK_COMPLETED'.\nIf you cannot complete the task (e.g., due to system limitations, missing files, or inaccessible paths), output 'TASK_FAILED' to abort early.`;
 
           const msgList = [
             { role: "system", content: currentSystemPrompt },
@@ -2411,6 +2618,8 @@ Always assume relative paths are from this directory.`;
               let toolCall: ParsedToolCall | null = parsedMessage.toolCall;
 
               if (subAgentDebugLogging) {
+                const rawContent = (typeof message === "string" ? message : JSON.stringify(message)) ?? "";
+                console.log(`[Sub-Agent] RAW content received: ${rawContent.substring(0, 1000)}...`);
                 const preview = content.substring(0, 200);
                 console.log(`[Sub-Agent] Parse result source=${parsedMessage.toolCallSource} hasToolCall=${Boolean(toolCall)} preview=${preview}`);
               }
@@ -2768,33 +2977,34 @@ Always assume relative paths are from this directory.`;
                 }
 
                 // Check for explicit completion phrase or strict loop limit
-                const planningLikeText = /(?:\bI(?:'ll| will)\b|\blet me\b|\bnext\b|\bfirst\b)/i.test(trimmed);
-                const shouldTreatAsFinalResponse =
-                  executedToolCallCount > 0 &&
-                  trimmed.length >= 120 &&
-                  !planningLikeText;
+                 const planningLikeText = /(?:\bI(?:'ll| will)\b|\blet me\b|\bnext\b|\bfirst\b)/i.test(trimmed);
+                 const shouldTreatAsFinalResponse =
+                   trimmed.length >= 120 &&
+                   !planningLikeText;
 
-                if (content.includes("TASK_COMPLETED") || shouldTreatAsFinalResponse || loops >= loopLimit - 1) {
-                  break; // Done
-                } else {
-                  noToolCallCount++;
-                  if (content.trim().length > 0) {
-                    msgList.push({ role: "assistant", content: content });
-                  }
+                 // Increment no-tool counter
+                 noToolCallCount++;
 
-                  let reminder = "SYSTEM NOTICE: You did not call a tool. If you are finished, output 'TASK_COMPLETED'. If not, USE A TOOL now and return a single JSON tool-call object only (no prose).";
-                  if (toolsEnabled) {
-                    if (allowFileSystem && suggestedReadPath && noToolCallCount <= 3) {
-                      const escapedPath = suggestedReadPath.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-                      reminder += `\nSuggested next step: {"tool":"read_file","args":{"file_name":"${escapedPath}"}}`;
-                    } else if (allowFileSystem && noToolCallCount <= 3) {
-                      reminder += `\nSuggested next step: {"tool":"list_directory","args":{}}`;
-                    }
-                  }
+                 if (content.includes("TASK_COMPLETED") || content.includes("TASK_FAILED") || shouldTreatAsFinalResponse || noToolCallCount >= 3 || loops >= loopLimit - 1) {
+                   break; // Done
+                 }
 
-                  msgList.push({ role: "system", content: reminder });
-                  loops++;
-                }
+                 if (content.trim().length > 0) {
+                   msgList.push({ role: "assistant", content: content });
+                 }
+
+                 let reminder = "SYSTEM NOTICE: You did not call a tool. If you are finished, output 'TASK_COMPLETED'. If you cannot complete the task, output 'TASK_FAILED'. If not, USE A TOOL now and return a single JSON tool-call object only (no prose).";
+                 if (toolsEnabled) {
+                   if (allowFileSystem && suggestedReadPath && noToolCallCount <= 3) {
+                     const escapedPath = suggestedReadPath.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+                     reminder += `\nSuggested next step: {"tool":"read_file","args":{"file_name":"${escapedPath}"}}`;
+                   } else if (allowFileSystem && noToolCallCount <= 3) {
+                     reminder += `\nSuggested next step: {"tool":"list_directory","args":{}}`;
+                   }
+                 }
+
+                 msgList.push({ role: "system", content: reminder });
+                 loops++;
               }
             } catch (err: any) { return { error: err.message, filesModified }; }
 
@@ -3543,7 +3753,34 @@ Always assume relative paths are from this directory.`;
 
 } // End of if (allowGitHubTools)
 
+  // Sort tools: casual/general-purpose first, then advanced/developer tools.
+  // Within each category, preserve alphabetical order.
+  const casualTools = new Set([
+    // File ops
+    "change_directory", "list_directory", "read_file", "read_file_range",
+    "save_file", "create_file", "move_file", "copy_file",
+    "delete_path", "delete_files_by_pattern", "make_directory",
+    "find_files", "fuzzy_find_local_files", "get_file_metadata",
+    "search_file_content", "search_in_file", "search_directory",
+    // File editing
+    "replace_text_in_file", "multi_replace_text",
+    "insert_at_line", "append_file", "delete_lines_in_file",
+    // Web / RAG
+    "web_search", "fetch_web_content", "wikipedia_search",
+    "rag_web_content", "rag_local_files",
+    // System / utility
+    "get_system_info", "read_clipboard", "write_clipboard",
+    "open_file_or_url", "preview_html", "read_document",
+    "save_memory", "send_notification",
+  ]);
 
+  tools.sort((a, b) => {
+    const aCasual = casualTools.has(a.name);
+    const bCasual = casualTools.has(b.name);
+    if (aCasual && !bCasual) return -1;
+    if (!aCasual && bCasual) return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   return tools;
 }
