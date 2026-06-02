@@ -70,6 +70,9 @@ export function createBrowserTools(ctx: ToolContext): Tool[] {
       include_page_text: z.boolean().optional().describe("If true (default), returns full page text content after opening."),
     },
     implementation: createSafeToolImplementation(async ({ url, wait_for_selector, include_page_text = true }) => {
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        return { error: "URL must start with http:// or https:// (file:// and other schemes are not allowed)." };
+      }
       try {
         if (ctx.browserSession) {
           await ctx.browserSession.browser.close().catch(() => {});
@@ -118,7 +121,7 @@ export function createBrowserTools(ctx: ToolContext): Tool[] {
 
         let screenshotSaved = false;
         if (screenshot_path) {
-          const screenshotFilePath = validatePath(ctx.cwd, screenshot_path);
+          const screenshotFilePath = validatePath(ctx.cwd, screenshot_path, ctx.protectedPaths);
           await ctx.browserSession.page.screenshot({ path: screenshotFilePath, fullPage: full_page_screenshot ?? false });
           screenshotSaved = true;
         }
@@ -177,6 +180,9 @@ export function createBrowserTools(ctx: ToolContext): Tool[] {
       actions: z.array(browserActionSchema).optional().describe("Optional scripted browser steps to run after navigation."),
     },
     implementation: createSafeToolImplementation(async ({ url, screenshot_path, wait_for_selector, full_page_screenshot, actions }) => {
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        return { error: "URL must start with http:// or https:// (file:// and other schemes are not allowed)." };
+      }
       let browser: any;
       try {
         const puppeteer = await import("puppeteer");
@@ -196,7 +202,7 @@ export function createBrowserTools(ctx: ToolContext): Tool[] {
 
           let screenshot_saved = false;
           if (screenshot_path) {
-            const screenshotFilePath = validatePath(ctx.cwd, screenshot_path);
+            const screenshotFilePath = validatePath(ctx.cwd, screenshot_path, ctx.protectedPaths);
             await page.screenshot({ path: screenshotFilePath, fullPage: full_page_screenshot ?? false });
             screenshot_saved = true;
           }

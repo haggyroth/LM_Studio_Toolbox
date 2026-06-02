@@ -41,4 +41,6 @@ export interface ToolContext {
   allowNotify: boolean;
   allowGitHubTools: boolean;
   embeddingModelName: string;
+  /** Resolved absolute paths that are always off-limits (from protectedPaths config). */
+  protectedPaths: string[];
 }

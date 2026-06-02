@@ -1,7 +1,7 @@
 import { tool, type Tool } from "@lmstudio/sdk";
 import { z } from "zod";
 import type { ToolContext } from "./context";
-import { createSafeToolImplementation, performRagOnText } from "./helpers";
+import { createSafeToolImplementation, performRagOnText, safeFetch } from "./helpers";
 type SearchProvider = "duckduckgo-api" | "duckduckgo-fetch" | "duckduckgo-html" | "google" | "bing";
 type SearchResult = { title: string; link: string; snippet: string; provider: SearchProvider };
 
@@ -244,11 +244,8 @@ export function createWebTools(ctx: ToolContext): Tool[] {
       url: z.string(),
     },
     implementation: async ({ url }) => {
-      if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        return { error: "URL must start with http:// or https://" };
-      }
       try {
-        const response = await fetch(url);
+        const response = await safeFetch(url, { timeoutMs: 30_000 });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         let rawText = await response.text();
 
@@ -275,11 +272,8 @@ export function createWebTools(ctx: ToolContext): Tool[] {
       query: z.string(),
     },
     implementation: async ({ url, query }) => {
-      if (!url.startsWith("http://") && !url.startsWith("https://")) {
-        return { error: "URL must start with http:// or https://" };
-      }
       try {
-        const response = await fetch(url);
+        const response = await safeFetch(url, { timeoutMs: 30_000 });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         let rawText = await response.text();
 
@@ -309,14 +303,14 @@ export function createWebTools(ctx: ToolContext): Tool[] {
       async ({ query, lang = "en" }) => {
         try {
           const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json`;
-          const searchData = await (await fetch(searchUrl)).json();
+          const searchData = await (await safeFetch(searchUrl, { timeoutMs: 15_000 })).json();
 
           if (!searchData.query?.search?.length) return { results: "No Wikipedia articles found." };
 
           const results = [];
           for (const item of searchData.query.search.slice(0, 3)) {
             const pageUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&explaintext&pageids=${item.pageid}&format=json`;
-            const pageData = await (await fetch(pageUrl)).json();
+            const pageData = await (await safeFetch(pageUrl, { timeoutMs: 15_000 })).json();
             const page = pageData.query.pages[item.pageid];
             results.push({
               title: item.title,

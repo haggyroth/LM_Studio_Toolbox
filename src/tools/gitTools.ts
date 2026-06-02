@@ -36,7 +36,7 @@ export function createGitTools(ctx: ToolContext): Tool[] {
       try {
         const args: string[] = [];
         if (cached) args.push("--cached");
-        if (file_path) args.push(validatePath(ctx.cwd, file_path));
+        if (file_path) args.push(validatePath(ctx.cwd, file_path, ctx.protectedPaths));
         const diff = await git.diff(args);
         return { diff: diff || "No changes." };
       } catch (e) {
@@ -92,7 +92,7 @@ export function createGitTools(ctx: ToolContext): Tool[] {
       const git = simpleGit(ctx.cwd);
       try {
         if (paths && paths.length > 0) {
-          const validatedPaths = paths.map(p => validatePath(ctx.cwd, p));
+          const validatedPaths = paths.map(p => validatePath(ctx.cwd, p, ctx.protectedPaths));
           await git.add(validatedPaths);
         } else {
           await git.add(".");

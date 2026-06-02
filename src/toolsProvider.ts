@@ -3,6 +3,7 @@ import type { LMStudioClient } from "@lmstudio/sdk";
 import { pluginConfigSchematics } from "./config";
 import { getPersistedState, savePersistedState, ensureWorkspaceExists } from "./stateManager";
 import type { ToolContext } from "./tools/context";
+import { parseProtectedPaths } from "./tools/helpers";
 
 import { createFileTools } from "./tools/fileTools";
 import { createCodeTools } from "./tools/codeTools";
@@ -45,6 +46,7 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     allowNotify:     pluginConfig.get("allowSystemNotifications"),
     allowGitHubTools: pluginConfig.get("allowGitHubTools"),
     embeddingModelName: pluginConfig.get("embeddingModel"),
+    protectedPaths: parseProtectedPaths(pluginConfig.get("protectedPaths") ?? ""),
   };
 
   // ── Workspace initialisation (idempotent) ────────────────────────────────────

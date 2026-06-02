@@ -1,7 +1,7 @@
 import { tool, text, type Tool } from "@lmstudio/sdk";
 import { z } from "zod";
 import { rm, writeFile, readdir, readFile, stat, mkdir, rename, copyFile, appendFile as fsAppendFile } from "fs/promises";
-import { join, resolve, dirname, relative } from "path";
+import { join, resolve, dirname, relative, sep } from "path";
 import type { ToolContext } from "./context";
 import { validatePath } from "./helpers";
 import { rankFuzzyMatches } from "../fuzzySearch";
@@ -23,6 +23,12 @@ export function createFileTools(ctx: ToolContext): Tool[] {
       // Use resolve() not validatePath() — the model must be able to navigate
       // to parent dirs ("..") and absolute paths, not just workspace subdirs.
       const newPath = resolve(ctx.cwd, directory);
+      // Enforce protectedPaths even though we allow leaving the workspace.
+      for (const blocked of ctx.protectedPaths) {
+        if (newPath === blocked || newPath.startsWith(blocked + sep)) {
+          return { error: `Access Denied: '${newPath}' is within a protected path ('${blocked}').` };
+        }
+      }
       const stats = await stat(newPath);
       if (!stats.isDirectory()) throw new Error(`Path is not a directory: ${newPath}`);
       const previous = ctx.cwd;
@@ -40,7 +46,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
       path: z.string().optional().describe("The path to the directory to list. Defaults to current working directory."),
     },
     implementation: async ({ path }) => {
-      const targetPath = path ? validatePath(ctx.cwd, path) : ctx.cwd;
+      const targetPath = path ? validatePath(ctx.cwd, path, ctx.protectedPaths) : ctx.cwd;
       return { files: await readdir(targetPath) };
     },
   }));
@@ -52,7 +58,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     description: "Read the content of a file in the current working directory.",
     parameters: { file_name: z.string() },
     implementation: async ({ file_name }) => {
-      const filePath = validatePath(ctx.cwd, file_name);
+      const filePath = validatePath(ctx.cwd, file_name, ctx.protectedPaths);
       const stats = await stat(filePath);
       if (stats.size > 10_000_000) return { error: "File too large (>10MB)" };
 
@@ -78,7 +84,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
     implementation: async ({ file_name, start_line, end_line }) => {
       try {
-        const filePath = validatePath(ctx.cwd, file_name);
+        const filePath = validatePath(ctx.cwd, file_name, ctx.protectedPaths);
         const content = await readFile(filePath, "utf-8");
         const lines = content.split("\n");
 
@@ -121,7 +127,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         if (!file.file_name?.trim()) { errors.push("Filename cannot be empty"); continue; }
         if (/[ \*\?<>|"]/.test(file.file_name)) { errors.push(`Filename ${file.file_name} contains invalid characters`); continue; }
         try {
-          const filePath = validatePath(ctx.cwd, file.file_name);
+          const filePath = validatePath(ctx.cwd, file.file_name, ctx.protectedPaths);
           await mkdir(dirname(filePath), { recursive: true });
           await writeFile(filePath, file.content, "utf-8");
           savedPaths.push(filePath);
@@ -148,7 +154,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
     implementation: async ({ file_name, content }) => {
       try {
-        const filePath = validatePath(ctx.cwd, file_name);
+        const filePath = validatePath(ctx.cwd, file_name, ctx.protectedPaths);
         await mkdir(dirname(filePath), { recursive: true });
         await fsAppendFile(filePath, content, "utf-8");
         return { success: true, message: `Content appended to ${file_name}` };
@@ -172,7 +178,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
     implementation: async ({ file_name, line_number, content_to_insert }) => {
       try {
-        const filePath = validatePath(ctx.cwd, file_name);
+        const filePath = validatePath(ctx.cwd, file_name, ctx.protectedPaths);
         let content = "";
         try { content = await readFile(filePath, "utf-8"); }
         catch { if (line_number !== 1) return { error: `File '${file_name}' does not exist. Can only insert at line 1 in a new file.` }; }
@@ -206,7 +212,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     implementation: async ({ file_name, old_string, new_string }) => {
       try {
         if (!old_string) return { error: "old_string cannot be empty" };
-        const filePath = validatePath(ctx.cwd, file_name);
+        const filePath = validatePath(ctx.cwd, file_name, ctx.protectedPaths);
         const content = await readFile(filePath, "utf-8");
         if (!content.includes(old_string)) return { error: "Could not find the exact 'old_string' in the file. Please check whitespace and indentation." };
         const occurrenceCount = content.split(old_string).length - 1;
@@ -237,7 +243,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
     implementation: async ({ file_name, replacements }) => {
       try {
-        const filePath = validatePath(ctx.cwd, file_name);
+        const filePath = validatePath(ctx.cwd, file_name, ctx.protectedPaths);
         const content = await readFile(filePath, "utf-8");
         let lines = content.split("\n");
         const errors: string[] = [];
@@ -275,7 +281,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
     implementation: async ({ file_name, start_line, end_line }) => {
       try {
-        const filePath = validatePath(ctx.cwd, file_name);
+        const filePath = validatePath(ctx.cwd, file_name, ctx.protectedPaths);
         let content: string;
         try { content = await readFile(filePath, "utf-8"); }
         catch { return { error: `File '${file_name}' does not exist.` }; }
@@ -303,7 +309,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     description: "Delete a file or directory in the current working directory. Be careful!",
     parameters: { path: z.string() },
     implementation: async ({ path }) => {
-      const targetPath = validatePath(ctx.cwd, path);
+      const targetPath = validatePath(ctx.cwd, path, ctx.protectedPaths);
       await rm(targetPath, { recursive: true, force: true });
       return { success: true, path: targetPath };
     },
@@ -343,8 +349,8 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     description: "Move or rename a file or directory.",
     parameters: { source: z.string(), destination: z.string() },
     implementation: async ({ source, destination }) => {
-      const sourcePath = validatePath(ctx.cwd, source);
-      const destPath = validatePath(ctx.cwd, destination);
+      const sourcePath = validatePath(ctx.cwd, source, ctx.protectedPaths);
+      const destPath = validatePath(ctx.cwd, destination, ctx.protectedPaths);
       await rename(sourcePath, destPath);
       return { success: true, from: sourcePath, to: destPath };
     },
@@ -355,8 +361,8 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     description: "Copy a file to a new location.",
     parameters: { source: z.string(), destination: z.string() },
     implementation: async ({ source, destination }) => {
-      const sourcePath = validatePath(ctx.cwd, source);
-      const destPath = validatePath(ctx.cwd, destination);
+      const sourcePath = validatePath(ctx.cwd, source, ctx.protectedPaths);
+      const destPath = validatePath(ctx.cwd, destination, ctx.protectedPaths);
       await copyFile(sourcePath, destPath);
       return { success: true, from: sourcePath, to: destPath };
     },
@@ -367,7 +373,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     description: "Create a new directory in the current working directory.",
     parameters: { directory_name: z.string() },
     implementation: async ({ directory_name }) => {
-      const dirPath = validatePath(ctx.cwd, directory_name);
+      const dirPath = validatePath(ctx.cwd, directory_name, ctx.protectedPaths);
       await mkdir(dirPath, { recursive: true });
       return { success: true, path: dirPath };
     },
@@ -389,7 +395,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
     implementation: async ({ directory_path, pattern, use_regex, case_sensitive = false }) => {
       try {
-        const targetDir = directory_path ? validatePath(ctx.cwd, directory_path) : ctx.cwd;
+        const targetDir = directory_path ? validatePath(ctx.cwd, directory_path, ctx.protectedPaths) : ctx.cwd;
         const flags = case_sensitive ? "g" : "gi";
         const regex = new RegExp(use_regex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
         const results: string[] = [];
@@ -445,7 +451,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
     implementation: async ({ file_name, pattern, case_sensitive = false, use_regex = false }) => {
       try {
-        const filePath = validatePath(ctx.cwd, file_name);
+        const filePath = validatePath(ctx.cwd, file_name, ctx.protectedPaths);
         const content = await readFile(filePath, "utf-8");
         const lines = content.split("\n");
         const matches: Array<{ line_number: number; content: string }> = [];
@@ -515,7 +521,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
     implementation: async ({ query, path = ".", max_results = 5 }) => {
       try {
-        const targetDir = validatePath(ctx.cwd, path);
+        const targetDir = validatePath(ctx.cwd, path, ctx.protectedPaths);
         const entries = await readdir(targetDir, { recursive: true, withFileTypes: true });
         const files = entries
           .filter(entry => entry.isFile())
@@ -538,7 +544,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     parameters: { path: z.string() },
     implementation: async ({ path }) => {
       try {
-        const targetPath = validatePath(ctx.cwd, path);
+        const targetPath = validatePath(ctx.cwd, path, ctx.protectedPaths);
         const stats = await stat(targetPath);
         return {
           path: targetPath, size: stats.size, created: stats.birthtime, modified: stats.mtime,
