@@ -9,9 +9,29 @@ import { extractHandoffMessage } from "../handoffMessage";
 import { parseSubAgentResponseMessage, type ParsedToolCall } from "../subAgentToolCallParser";
 import { validateToolCall } from "../toolCallValidator";
 import { executeBrowserActions } from "../browserActions";
-import { runPythonImpl } from "./codeTools";
+import { runPythonImpl, runJavascriptImpl } from "./codeTools";
 
 const MAX_SUB_AGENT_OUTPUT_CHARS = 30_000;
+
+/**
+ * Strip HTML tags, scripts, styles and decode common entities so that
+ * fetch_web_content returns readable plain text instead of raw markup.
+ */
+function htmlToPlainText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 export function createSubAgentTools(ctx: ToolContext): Tool[] {
   if (!ctx.enableSecondary) return [];
@@ -183,7 +203,8 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                           ? `${readContent.substring(0, MAX_SUB_AGENT_OUTPUT_CHARS)}\n... (truncated)`
                           : readContent;
                       } else if (toolCall.tool === "list_directory") {
-                        toolResult = JSON.stringify(await readdir(cwd));
+                        const listPath = args?.path ? validatePath(cwd, args.path) : cwd;
+                        toolResult = JSON.stringify(await readdir(listPath));
                       } else if (toolCall.tool === "save_file") {
                         if (Array.isArray(args.files)) {
                           const savedList: string[] = [];
@@ -309,7 +330,10 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                           toolResult = "Error: URL must start with http:// or https://";
                         } else {
                           const res = await fetch(args.url);
-                          toolResult = (await res.text()).substring(0, 5000);
+                          const plainText = htmlToPlainText(await res.text());
+                          toolResult = plainText.length > 8000
+                            ? `${plainText.substring(0, 8000)}\n... (truncated)`
+                            : plainText;
                         }
                       } else if (allowSubAgentBrowserControl && ctx.allowBrowserControl && toolCall.tool === "browser_session_open" && args.url) {
                         if (ctx.browserSession) { await ctx.browserSession.browser.close().catch(() => {}); ctx.browserSession = null; }
@@ -358,6 +382,24 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                       if (toolCall.tool === "run_python" && args.python) {
                         const res = await runPythonImpl({ python: args.python, cwd });
                         toolResult = res.stderr ? `Error: ${res.stderr}` : res.stdout;
+                      } else if (toolCall.tool === "run_javascript" && args.javascript) {
+                        const res = await runJavascriptImpl({ javascript: args.javascript, cwd });
+                        toolResult = res.stderr ? `Error: ${res.stderr}` : res.stdout;
+                      }
+                    }
+
+                    // RAG web content (fetch + embed + score — available when web is allowed)
+                    if (allowWeb && !toolResult && toolCall.tool === "rag_web_content" && args.url && args.query) {
+                      if (!args.url.startsWith("http://") && !args.url.startsWith("https://")) {
+                        toolResult = "Error: URL must start with http:// or https://";
+                      } else if (!ctx.client) {
+                        toolResult = "Error: LM Studio client unavailable for RAG.";
+                      } else {
+                        const res = await fetch(args.url);
+                        const plainText = htmlToPlainText(await res.text());
+                        const { performRagOnText } = await import("./helpers");
+                        const topChunks = await performRagOnText(plainText, args.query, ctx.client, ctx.embeddingModelName);
+                        toolResult = topChunks.map((c, i) => `[${i + 1}] (score ${c.score.toFixed(3)})\n${c.chunk}`).join("\n\n");
                       }
                     }
 
