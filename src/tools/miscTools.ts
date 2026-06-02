@@ -95,7 +95,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
     implementation: async ({ target }) => {
       let targetToOpen = target;
       if (!target.startsWith("http://") && !target.startsWith("https://")) {
-        targetToOpen = validatePath(ctx.cwd, target);
+        targetToOpen = validatePath(ctx.cwd, target, ctx.protectedPaths);
       }
       const open = (await import("open")).default;
       await open(targetToOpen);
@@ -113,7 +113,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
     implementation: async ({ html_content, file_name }) => {
       const { writeFile } = await import("fs/promises");
       const name = file_name || `preview_${Date.now()}.html`;
-      const filePath = validatePath(ctx.cwd, name);
+      const filePath = validatePath(ctx.cwd, name, ctx.protectedPaths);
       await writeFile(filePath, html_content, "utf-8");
       const open = (await import("open")).default;
       await open(filePath);
@@ -128,7 +128,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
     description: "Read content from PDF or DOCX files.",
     parameters: { file_path: z.string() },
     implementation: async ({ file_path }) => {
-      const fpath = validatePath(ctx.cwd, file_path);
+      const fpath = validatePath(ctx.cwd, file_path, ctx.protectedPaths);
       const ext = fpath.split(".").pop()?.toLowerCase();
       try {
         if (ext === "pdf") {
@@ -184,9 +184,9 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
       description: "Execute a read-only query on a SQLite database file.",
       parameters: { db_path: z.string(), query: z.string() },
       implementation: async ({ db_path, query }) => {
-        const fpath = validatePath(ctx.cwd, db_path);
-        if (/^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE)\b/i.test(query)) {
-          return { error: "Only SELECT/read queries are allowed for safety." };
+        const fpath = validatePath(ctx.cwd, db_path, ctx.protectedPaths);
+        if (/^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|REPLACE|ATTACH|DETACH|PRAGMA)\b/i.test(query)) {
+          return { error: "Only SELECT/read queries are allowed. Statements that modify data or attach external databases are blocked." };
         }
         try {
           const Database = (await import("better-sqlite3")).default;
@@ -219,7 +219,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
           const { readdir, readFile } = await import("fs/promises");
           const { join } = await import("path");
 
-          const targetDir = validatePath(ctx.cwd, path);
+          const targetDir = validatePath(ctx.cwd, path, ctx.protectedPaths);
           const entries = await readdir(targetDir, { recursive: true, withFileTypes: true });
           const textFiles = entries.filter(e => e.isFile() && !e.name.match(/\.(png|jpg|jpeg|gif|ico|exe|dll|bin)$/i));
           const filteredFiles = file_pattern
