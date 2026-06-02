@@ -3,7 +3,7 @@ import { z } from "zod";
 import { rm, writeFile, readdir, readFile, stat, mkdir, appendFile } from "fs/promises";
 import { join, isAbsolute, dirname, relative } from "path";
 import type { ToolContext } from "./context";
-import { validatePath, extractLikelyFilePath, createSafeToolImplementation } from "./helpers";
+import { validatePath, extractLikelyFilePath, createSafeToolImplementation, ragLocalFiles } from "./helpers";
 import { rankFuzzyMatches } from "../fuzzySearch";
 import { extractHandoffMessage } from "../handoffMessage";
 import { parseSubAgentResponseMessage, type ParsedToolCall } from "../subAgentToolCallParser";
@@ -344,35 +344,12 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                           toolResult = "Error: LM Studio client unavailable for RAG.";
                         } else {
                           const targetDir = validatePath(cwd, args.path || ".");
-                          const filePattern: string = args.file_pattern || "";
-                          const entries = await readdir(targetDir, { recursive: true, withFileTypes: true });
-                          const textFiles = entries.filter(e =>
-                            e.isFile() && !e.name.match(/\.(png|jpg|jpeg|gif|ico|exe|dll|bin)$/i) &&
-                            (!filePattern || e.name.includes(filePattern) || join((e as any).parentPath ?? (e as any).path, e.name).includes(filePattern))
-                          ).slice(0, 50);
-
-                          const { cosineSimilarity } = await import("./helpers");
-                          const embeddingModel = await ctx.client.embedding.model(ctx.embeddingModelName);
-                          const [queryEmbedding] = await embeddingModel.embed([args.query]);
-                          const allChunks: { chunk: string; score: number; file: string }[] = [];
-
-                          for (const file of textFiles) {
-                            try {
-                              const fullPath = join((file as any).parentPath ?? (file as any).path, file.name);
-                              const content = await readFile(fullPath, "utf-8");
-                              const chunks = content.split(/\n\s*\n/).filter(c => c.trim().length > 20);
-                              if (!chunks.length) continue;
-                              const chunkEmbeddings = await embeddingModel.embed(chunks);
-                              chunks.forEach((chunk, i) => {
-                                const score = cosineSimilarity(queryEmbedding.embedding, chunkEmbeddings[i].embedding);
-                                if (score > 0.4) allChunks.push({ chunk, score, file: file.name });
-                              });
-                            } catch { /* skip unreadable files */ }
-                          }
-
-                          allChunks.sort((a, b) => b.score - a.score);
-                          toolResult = JSON.stringify(allChunks.slice(0, 10).map(c => ({
-                            file: c.file, score: c.score.toFixed(3), content: c.chunk,
+                          const results = await ragLocalFiles({
+                            query: args.query, targetDir, filePattern: args.file_pattern || "",
+                            client: ctx.client, embeddingModelName: ctx.embeddingModelName,
+                          });
+                          toolResult = JSON.stringify(results.map(r => ({
+                            file: r.file, score: r.score.toFixed(3), content: r.content,
                           })));
                         }
                       }

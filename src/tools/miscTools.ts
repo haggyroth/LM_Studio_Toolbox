@@ -4,8 +4,7 @@ import { spawn } from "child_process";
 import { readFile } from "fs/promises";
 import * as os from "os";
 import type { ToolContext } from "./context";
-import { validatePath } from "./helpers";
-import { cosineSimilarity } from "./helpers";
+import { validatePath, ragLocalFiles } from "./helpers";
 
 export function createMiscTools(ctx: ToolContext): Tool[] {
   const tools: Tool[] = [];
@@ -232,39 +231,12 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
       implementation: async ({ query, path = ".", file_pattern = "" }) => {
         try {
           if (!ctx.client) return { error: "LM Studio Client unavailable." };
-          const { readdir, readFile } = await import("fs/promises");
-          const { join } = await import("path");
-
           const targetDir = validatePath(ctx.cwd, path, ctx.protectedPaths);
-          const entries = await readdir(targetDir, { recursive: true, withFileTypes: true });
-          const textFiles = entries.filter(e => e.isFile() && !e.name.match(/\.(png|jpg|jpeg|gif|ico|exe|dll|bin)$/i));
-          const filteredFiles = file_pattern
-            ? textFiles.filter(e => e.name.includes(file_pattern) || join((e as any).parentPath ?? (e as any).path, e.name).includes(file_pattern))
-            : textFiles;
-
-          const filesToScan = filteredFiles.slice(0, 50);
-          const allChunks: { chunk: string; score: number; file: string }[] = [];
-
-          const embeddingModel = await ctx.client.embedding.model(ctx.embeddingModelName);
-          const [queryEmbedding] = await embeddingModel.embed([query]);
-
-          for (const file of filesToScan) {
-            try {
-              const fullPath = join((file as any).parentPath ?? (file as any).path, file.name);
-              const content = await readFile(fullPath, "utf-8");
-              const chunks = content.split(/\n\s*\n/).filter(c => c.trim().length > 20);
-              if (chunks.length === 0) continue;
-
-              const chunkEmbeddings = await embeddingModel.embed(chunks);
-              chunks.forEach((chunk, i) => {
-                const score = cosineSimilarity(queryEmbedding.embedding, chunkEmbeddings[i].embedding);
-                if (score > 0.4) allChunks.push({ chunk, score, file: file.name });
-              });
-            } catch { /* ignore read errors */ }
-          }
-
-          allChunks.sort((a, b) => b.score - a.score);
-          return { query, results: allChunks.slice(0, 10).map(c => ({ file: c.file, score: c.score.toFixed(3), content: c.chunk })) };
+          const results = await ragLocalFiles({
+            query, targetDir, filePattern: file_pattern,
+            client: ctx.client, embeddingModelName: ctx.embeddingModelName,
+          });
+          return { query, results: results.map(r => ({ file: r.file, score: r.score.toFixed(3), content: r.content })) };
         } catch (error) {
           return { error: `Local RAG failed: ${error instanceof Error ? error.message : String(error)}` };
         }
