@@ -1,5 +1,6 @@
 import { join, sep } from "path";
 import { resolve, relative, isAbsolute } from "path";
+import { stat, readFile, readdir } from "fs/promises";
 import type { LMStudioClient } from "@lmstudio/sdk";
 import { findLMStudioHome } from "../findLMStudioHome";
 
@@ -164,6 +165,126 @@ export const createSafeToolImplementation = <TParameters, TReturn>(
 };
 
 // ─── RAG / Embeddings ─────────────────────────────────────────────────────────
+
+/**
+ * Module-level embedding cache for rag_local_files (PERF-2).
+ *
+ * Keyed by absolute file path.  Each entry stores the file's mtime at the
+ * time it was embedded plus the chunk strings and their embedding vectors.
+ * Before embedding a file we stat() it — if the mtime hasn't changed since
+ * the last embed we reuse the cached vectors, paying only for the query embed.
+ *
+ * The cache lives for the lifetime of the plugin process (never evicted).
+ * Deleted files are harmless — their path simply won't be found in future
+ * readdir() scans.  Modified files are detected via mtime.
+ */
+interface EmbeddingCacheEntry {
+  mtime: number;
+  chunks: string[];
+  embeddings: number[][];
+}
+const _embeddingCache = new Map<string, EmbeddingCacheEntry>();
+
+/** Shared binary extensions skipped by RAG scans. */
+const BINARY_EXT_RE = /\.(png|jpg|jpeg|gif|ico|exe|dll|bin|pdf|docx|zip|tar|gz|wasm|node)$/i;
+
+export type RagLocalResult = { file: string; score: number; content: string };
+
+/**
+ * Scan up to `maxFiles` text files under `targetDir`, embed them with the
+ * given model (using a per-file mtime cache to skip unchanged files), and
+ * return the top-scoring chunks for `query`.
+ *
+ * Both rag_local_files (miscTools) and the sub-agent copy call this instead
+ * of duplicating the embed loop.
+ */
+export async function ragLocalFiles(opts: {
+  query: string;
+  targetDir: string;
+  filePattern?: string;
+  client: LMStudioClient;
+  embeddingModelName: string;
+  maxFiles?: number;
+  minScore?: number;
+  topK?: number;
+}): Promise<RagLocalResult[]> {
+  const {
+    query, targetDir, filePattern = "", client, embeddingModelName,
+    maxFiles = 50, minScore = 0.4, topK = 10,
+  } = opts;
+
+  // 1. Discover candidate text files
+  const entries = await readdir(targetDir, { recursive: true, withFileTypes: true });
+  const candidates = entries
+    .filter(e => {
+      if (!e.isFile() || BINARY_EXT_RE.test(e.name)) return false;
+      if (!filePattern) return true;
+      const fullPath = join((e as any).parentPath ?? (e as any).path, e.name);
+      return e.name.includes(filePattern) || fullPath.includes(filePattern);
+    })
+    .slice(0, maxFiles);
+
+  // 2. Load the embedding model and embed the query
+  const embeddingModel = await client.embedding.model(embeddingModelName);
+  const [queryEmbedding] = await embeddingModel.embed([query]);
+
+  // 3. Separate cache-hits from files that need (re-)embedding
+  type FileMeta = { fullPath: string; name: string };
+  const hits: FileMeta[] = [];
+  const misses: FileMeta[] = [];
+  const mtimes: number[] = [];
+
+  await Promise.all(candidates.map(async e => {
+    const fullPath = join((e as any).parentPath ?? (e as any).path, e.name);
+    try {
+      const s = await stat(fullPath);
+      const mtime = s.mtimeMs;
+      const cached = _embeddingCache.get(fullPath);
+      if (cached && cached.mtime === mtime) {
+        hits.push({ fullPath, name: e.name });
+        mtimes.push(mtime);
+      } else {
+        misses.push({ fullPath, name: e.name });
+        mtimes.push(mtime);
+      }
+    } catch {
+      // unreadable / deleted — skip
+    }
+  }));
+
+  // 4. Batch-embed all cache-miss files
+  for (const { fullPath, name } of misses) {
+    try {
+      const content = await readFile(fullPath, "utf-8");
+      const chunks = content.split(/\n\s*\n/).filter(c => c.trim().length > 20);
+      if (chunks.length === 0) continue;
+      const embeddings = await embeddingModel.embed(chunks);
+      const mtime = (await stat(fullPath)).mtimeMs;
+      _embeddingCache.set(fullPath, {
+        mtime,
+        chunks,
+        embeddings: embeddings.map((e: { embedding: number[] }) => e.embedding),
+      });
+      hits.push({ fullPath, name });
+    } catch {
+      // skip unreadable files
+    }
+  }
+
+  // 5. Score all cached chunks against the query
+  const allChunks: RagLocalResult[] = [];
+  for (const { fullPath, name } of hits) {
+    const cached = _embeddingCache.get(fullPath);
+    if (!cached) continue;
+    cached.chunks.forEach((chunk, i) => {
+      const score = cosineSimilarity(queryEmbedding.embedding, cached.embeddings[i]);
+      if (score > minScore) allChunks.push({ file: name, score, content: chunk });
+    });
+  }
+
+  allChunks.sort((a, b) => b.score - a.score);
+  return allChunks.slice(0, topK);
+}
 
 export function cosineSimilarity(vecA: number[], vecB: number[]): number {
   const dotProduct = vecA.reduce((acc, val, i) => acc + val * vecB[i], 0);
