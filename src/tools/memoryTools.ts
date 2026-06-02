@@ -5,7 +5,6 @@ import { readFile, rename } from "fs/promises";
 import type { ToolContext } from "./context";
 
 const DB_FILE = ".memories.db";
-const DISABLED_MSG = "Memory is currently disabled in the plugin settings. Please ask the user to enable 'Enable Memory' in the plugin settings.";
 
 /**
  * Module-level connection cache keyed by absolute DB path.
@@ -82,6 +81,10 @@ async function migrateLegacyFile(cwd: string, db: any): Promise<number> {
 }
 
 export function createMemoryTools(ctx: ToolContext): Tool[] {
+  // Memory disabled — return no tools so they don't appear in the model's tool list.
+  // Consistent with gitTools, githubTools, subAgentTools which also return [] when off.
+  if (!ctx.enableMemory) return [];
+
   const tools: Tool[] = [];
 
   // ─── save_memory ─────────────────────────────────────────────────────────────
@@ -99,7 +102,7 @@ export function createMemoryTools(ctx: ToolContext): Tool[] {
       tags: z.string().optional().describe("Optional comma-separated tags (e.g. 'preference,ui')."),
     },
     implementation: async ({ fact, tags = "" }) => {
-      if (!ctx.enableMemory) return { error: DISABLED_MSG };
+
       try {
         const entry = await getDb(ctx.cwd);
         let migrated = 0;
@@ -133,7 +136,7 @@ export function createMemoryTools(ctx: ToolContext): Tool[] {
       limit: z.number().int().min(1).max(200).optional().describe("Max entries to return (default: 50)."),
     },
     implementation: async ({ tag, limit = 50 }) => {
-      if (!ctx.enableMemory) return { error: DISABLED_MSG };
+
       try {
         const { db, migrationDone } = await getDb(ctx.cwd);
         if (!migrationDone) { await migrateLegacyFile(ctx.cwd, db); _dbCache.get(join(ctx.cwd, DB_FILE))!.migrationDone = true; }
@@ -160,7 +163,7 @@ export function createMemoryTools(ctx: ToolContext): Tool[] {
       limit: z.number().int().min(1).max(50).optional().describe("Max results to return (default: 10)."),
     },
     implementation: async ({ query, limit = 10 }) => {
-      if (!ctx.enableMemory) return { error: DISABLED_MSG };
+
       try {
         const { db, migrationDone } = await getDb(ctx.cwd);
         if (!migrationDone) { await migrateLegacyFile(ctx.cwd, db); _dbCache.get(join(ctx.cwd, DB_FILE))!.migrationDone = true; }
@@ -189,7 +192,7 @@ export function createMemoryTools(ctx: ToolContext): Tool[] {
       tags: z.string().optional().describe("New tags (omit to keep existing)."),
     },
     implementation: async ({ id, fact, tags }) => {
-      if (!ctx.enableMemory) return { error: DISABLED_MSG };
+
       if (fact === undefined && tags === undefined) {
         return { error: "Provide at least one of 'fact' or 'tags' to update." };
       }
@@ -220,7 +223,7 @@ export function createMemoryTools(ctx: ToolContext): Tool[] {
       id: z.number().int().describe("The ID of the memory to delete."),
     },
     implementation: async ({ id }) => {
-      if (!ctx.enableMemory) return { error: DISABLED_MSG };
+
       try {
         const { db } = await getDb(ctx.cwd);
         const existing: any = db.prepare("SELECT fact FROM memories WHERE id = ?").get(id);

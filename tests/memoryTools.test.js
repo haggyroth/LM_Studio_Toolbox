@@ -59,23 +59,11 @@ describe("Memory CRUD tools", () => {
 
   // ── Always runs — no SQLite needed ────────────────────────────────────────────
 
-  it("all tools: return disabled error when memory is turned off", async () => {
+  it("createMemoryTools returns empty array when memory is disabled (CON-1)", () => {
+    // Consistent with gitTools, githubTools — disabled features return no tools
+    // so they don't appear in the model's tool list at all.
     const disabledTools = createMemoryTools(makeCtx(tmpDir, false));
-    const cases = [
-      ["save_memory",    { fact: "x" }],
-      ["list_memories",  {}],
-      ["search_memories",{ query: "x" }],
-      ["update_memory",  { id: 1, fact: "x" }],
-      ["delete_memory",  { id: 1 }],
-    ];
-    for (const [name, args] of cases) {
-      const result = await callTool(disabledTools, name, args);
-      assert.ok(result.error, `${name} should error when disabled`);
-      assert.ok(
-        result.error.toLowerCase().includes("disabled"),
-        `${name} error should mention 'disabled', got: ${result.error}`
-      );
-    }
+    assert.equal(disabledTools.length, 0, "should return [] when enableMemory is false");
   });
 
   // ── Require SQLite native binding ─────────────────────────────────────────────
