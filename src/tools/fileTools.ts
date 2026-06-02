@@ -548,36 +548,5 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
   }));
 
-  // ─── Memory ──────────────────────────────────────────────────────────────────
-
-  tools.push(tool({
-    name: "save_memory",
-    description: text`
-      Save a specific piece of information or fact to long-term memory.
-      This information will be available in future interactions if memory is enabled.
-      Use this for user preferences, important facts, or context that should persist.
-    `,
-    parameters: {
-      fact: z.string().describe("The specific fact or piece of information to remember."),
-    },
-    implementation: async ({ fact }) => {
-      if (!ctx.enableMemory) return { error: "Memory is currently disabled in the plugin settings. Please ask the user to enable it." };
-      const memoryFile = join(ctx.cwd, "memory.md");
-      const timestamp = new Date().toISOString();
-      const entry = `\n- [${timestamp}] ${fact}`;
-      try {
-        await fsAppendFile(memoryFile, entry, "utf-8");
-        return { success: true, message: "Fact saved to memory." };
-      } catch {
-        try {
-          await writeFile(memoryFile, "# Long-Term Memory\n" + entry, "utf-8");
-          return { success: true, message: "Fact saved to memory (new file created)." };
-        } catch (writeError) {
-          return { error: `Failed to save memory: ${writeError instanceof Error ? writeError.message : String(writeError)}` };
-        }
-      }
-    },
-  }));
-
   return tools;
 }

@@ -11,6 +11,7 @@ import { createBrowserTools } from "./tools/browserTools";
 import { createGitTools } from "./tools/gitTools";
 import { createGithubTools } from "./tools/githubTools";
 import { createMiscTools } from "./tools/miscTools";
+import { createMemoryTools } from "./tools/memoryTools";
 import { createSubAgentTools } from "./tools/subAgentTools";
 
 let isWorkspaceInitialized = false;
@@ -72,6 +73,7 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     ...createGitTools(ctx),
     ...createGithubTools(ctx),
     ...createMiscTools(ctx),
+    ...createMemoryTools(ctx),
     ...createSubAgentTools(ctx),
   ];
 
@@ -88,7 +90,8 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     "rag_web_content", "rag_local_files",
     "get_system_info", "read_clipboard", "write_clipboard",
     "open_file", "preview_html", "read_document",
-    "save_memory", "send_notification",
+    "save_memory", "list_memories", "search_memories", "update_memory", "delete_memory",
+    "send_notification",
   ]);
 
   allTools.sort((a, b) => {
