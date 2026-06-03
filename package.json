@@ -1,6 +1,6 @@
 {
   "name": "lm-studio-toolbox",
-  "version": "3.10.1",
+  "version": "3.11.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -8,8 +8,8 @@
     "push": "lms push",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "test": "node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js tests/phaseN9.test.js tests/phaseN8N10.test.js tests/phaseN14N15.test.js tests/phaseN12.test.js tests/phaseN16.test.js tests/phaseN13.test.js",
-    "coverage": "node_modules/.bin/c8 --reporter=text --reporter=html node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js tests/phaseN9.test.js tests/phaseN8N10.test.js tests/phaseN14N15.test.js tests/phaseN12.test.js tests/phaseN16.test.js tests/phaseN13.test.js",
+    "test": "node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js tests/phaseN9.test.js tests/phaseN8N10.test.js tests/phaseN14N15.test.js tests/phaseN12.test.js tests/phaseN16.test.js tests/phaseN13.test.js tests/phaseO2.test.js",
+    "coverage": "node_modules/.bin/c8 --reporter=text --reporter=html node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js tests/phaseN9.test.js tests/phaseN8N10.test.js tests/phaseN14N15.test.js tests/phaseN12.test.js tests/phaseN16.test.js tests/phaseN13.test.js tests/phaseO2.test.js",
     "mcp": "node dist/mcpServer.js",
     "lint": "eslint src/",
     "ci": "npm run typecheck && npm run lint && npm run build && npm run test"

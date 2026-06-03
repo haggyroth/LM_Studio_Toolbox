@@ -542,10 +542,11 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
     parameters: {
       depth: z.number().int().min(1).max(4).optional().default(2).describe("Directory tree depth (default: 2, max: 4)."),
     },
-    implementation: async ({ depth = 2 }) => {
+    implementation: async ({ depth = 2 }, toolCtx) => {
       const result: Record<string, unknown> = { cwd: ctx.cwd };
 
       // ── 1. Directory tree ─────────────────────────────────────────────────
+      toolCtx?.status?.("Building directory tree…");
       const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".next", "__pycache__", ".cache", "coverage"]);
       async function buildTree(dir: string, currentDepth: number): Promise<Record<string, unknown>> {
         const tree: Record<string, unknown> = {};
@@ -569,6 +570,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
       result.directory_tree = await buildTree(ctx.cwd, 1);
 
       // ── 2. Package manifest ───────────────────────────────────────────────
+      toolCtx?.status?.("Reading package manifest…");
       const manifestCandidates = ["package.json", "pyproject.toml", "Cargo.toml", "go.mod", "composer.json"];
       for (const manifest of manifestCandidates) {
         try {
@@ -589,6 +591,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
       }
 
       // ── 3. Git info ───────────────────────────────────────────────────────
+      toolCtx?.status?.("Fetching git status…");
       try {
         const { simpleGit } = await import("simple-git");
         const git = simpleGit(ctx.cwd);
@@ -611,6 +614,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
       } catch { /* not a git repo */ }
 
       // ── 4. File counts by extension ───────────────────────────────────────
+      toolCtx?.status?.("Counting files by extension…");
       try {
         const { readdir: fsReaddir2 } = await import("fs/promises");
         const extCounts: Record<string, number> = {};
@@ -635,13 +639,69 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
       // ── 5. Detected commands hint ─────────────────────────────────────────
       const scripts = (result.package as any)?.scripts ?? {};
       const hints: string[] = [];
-      if (scripts.test) hints.push(`test: ${scripts.test}`);
-      if (scripts.build) hints.push(`build: ${scripts.build}`);
-      if (scripts.dev) hints.push(`dev: ${scripts.dev}`);
-      if (scripts.lint) hints.push(`lint: ${scripts.lint}`);
+      for (const key of ["test", "build", "dev", "start", "lint", "format", "check", "typecheck", "ci"]) {
+        if (scripts[key]) hints.push(`${key}: ${scripts[key].substring(0, 80)}`);
+      }
       if (hints.length) result.detected_commands = hints;
 
+      toolCtx?.status?.("Done.");
       return result;
+    },
+  }));
+
+  // ── O2: tool_usage_stats ──────────────────────────────────────────────────
+
+  tools.push(tool({
+    name: "tool_usage_stats",
+    description: "Show aggregated statistics from the audit log — call counts, average elapsed time, and error rates per tool. Only available when the audit log is enabled (enableAuditLog config). Useful for understanding where time is spent in a session.",
+    parameters: {
+      limit: z.number().int().min(1).max(100).optional().default(20).describe("Top N tools to return, ranked by call count (default: 20)."),
+      sort_by: z.enum(["calls", "avg_ms", "errors"]).optional().default("calls").describe("Sort order: by call count, average elapsed ms, or error count."),
+    },
+    implementation: async ({ limit = 20, sort_by = "calls" }) => {
+      const auditEnabled: boolean = ctx.pluginConfig.get("enableAuditLog") ?? false;
+      if (!auditEnabled) {
+        return { error: "Audit log is disabled. Enable it via the 'enableAuditLog' config field to collect tool usage data." };
+      }
+
+      const auditPath = pathJoin(homedir(), ".lm-studio-toolbox", "audit.log");
+      let raw: string;
+      try { raw = await readFile(auditPath, "utf-8"); }
+      catch { return { error: "Audit log file not found. No tool calls have been logged yet." }; }
+
+      const stats = new Map<string, { calls: number; total_ms: number; errors: number }>();
+      for (const line of raw.split("\n")) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const entry = JSON.parse(trimmed) as { tool: string; status: string; elapsed_ms: number };
+          const s = stats.get(entry.tool) ?? { calls: 0, total_ms: 0, errors: 0 };
+          s.calls++;
+          s.total_ms += entry.elapsed_ms ?? 0;
+          if (entry.status === "error" || entry.status === "throw") s.errors++;
+          stats.set(entry.tool, s);
+        } catch { /* malformed line — skip */ }
+      }
+
+      const rows = Array.from(stats.entries()).map(([name, s]) => ({
+        tool: name,
+        calls: s.calls,
+        avg_ms: Math.round(s.total_ms / s.calls),
+        errors: s.errors,
+        error_rate: `${Math.round((s.errors / s.calls) * 100)}%`,
+      }));
+
+      rows.sort((a, b) =>
+        sort_by === "avg_ms" ? b.avg_ms - a.avg_ms :
+        sort_by === "errors" ? b.errors - a.errors :
+        b.calls - a.calls
+      );
+
+      return {
+        total_tools_used: rows.length,
+        total_calls: rows.reduce((s, r) => s + r.calls, 0),
+        top_tools: rows.slice(0, limit),
+      };
     },
   }));
 
