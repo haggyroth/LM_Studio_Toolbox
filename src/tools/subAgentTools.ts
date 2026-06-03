@@ -4,7 +4,7 @@ import { rm, writeFile, readdir, readFile, stat, mkdir, appendFile, rename as fs
 import { join, isAbsolute, dirname, relative } from "path";
 import { homedir } from "os";
 import type { ToolContext } from "./context";
-import { validatePath, extractLikelyFilePath, createSafeToolImplementation, ragLocalFiles, type ToolCtxLike } from "./helpers";
+import { validatePath, extractLikelyFilePath, createSafeToolImplementation, ragLocalFiles, safeFetch, type ToolCtxLike } from "./helpers";
 import { rankFuzzyMatches } from "../fuzzySearch";
 import { extractHandoffMessage } from "../handoffMessage";
 import { parseSubAgentResponseMessage, type ParsedToolCall } from "../subAgentToolCallParser";
@@ -176,8 +176,8 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           const useWeb  = effectiveAllowWeb        || forceTools;
           const useCode = effectiveAllowCode       || forceTools;
           const toolsEnabled = useFS || useWeb || useCode;
+          const allowedTools: string[] = []; // populated below; accessible in tool-dispatch fallthrough
           if (toolsEnabled) {
-            const allowedTools: string[] = [];
             if (useFS) {
               // J.4: readonly mode — only expose read tools, no writes or deletes
               allowedTools.push("read_file", "read_file_range", "list_directory", "search_in_file", "find_files", "fuzzy_find_local_files", "rag_local_files");
@@ -344,7 +344,8 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                 executedToolCallCount++;
                 msgList.push({ role: "assistant", content });
 
-                let toolResult = "";
+                // Use undefined (not "") so empty legitimate output isn't mistaken for "no result"
+                let toolResult: string | undefined = undefined;
                 const args = toolCall.args || {};
                 const validationError = validateToolCall(toolCall.tool, args);
 
@@ -372,19 +373,31 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                         const fileLines = (await readFile(fpath, "utf-8")).split("\n");
                         const caseSensitive = args.case_sensitive !== false;
                         const useRegex = args.use_regex === true;
-                        const regex = useRegex
-                          ? new RegExp(args.pattern, caseSensitive ? "" : "i")
-                          : null;
-                        const hits: string[] = [];
-                        for (let i = 0; i < fileLines.length; i++) {
-                          const line = fileLines[i];
-                          const match = regex
-                            ? regex.test(line)
-                            : caseSensitive ? line.includes(args.pattern) : line.toLowerCase().includes(args.pattern.toLowerCase());
-                          if (match) hits.push(`${i + 1}: ${line}`);
-                          if (hits.length >= 100) break;
+                        let regex: RegExp | null = null;
+                        if (useRegex) {
+                          try {
+                            // ReDoS pre-check: compile and run against a known-safe string
+                            const candidate = new RegExp(args.pattern, caseSensitive ? "" : "i");
+                            const t0 = Date.now();
+                            candidate.test("safe_redos_probe_string_1234567890_abcdefghij");
+                            if (Date.now() - t0 > 100) { toolResult = "Error: Regex pattern is too slow (possible ReDoS). Simplify the pattern."; }
+                            else regex = candidate;
+                          } catch (regexErr) {
+                            toolResult = `Error: Invalid regular expression: ${regexErr instanceof Error ? regexErr.message : String(regexErr)}`;
+                          }
                         }
-                        toolResult = hits.length > 0 ? hits.join("\n") : "No matches found.";
+                        if (toolResult === undefined) {
+                          const hits: string[] = [];
+                          for (let i = 0; i < fileLines.length; i++) {
+                            const line = fileLines[i];
+                            const match = regex
+                              ? regex.test(line)
+                              : caseSensitive ? line.includes(args.pattern) : line.toLowerCase().includes(args.pattern.toLowerCase());
+                            if (match) hits.push(`${i + 1}: ${line}`);
+                            if (hits.length >= 100) break;
+                          }
+                          toolResult = hits.length > 0 ? hits.join("\n") : "No matches found.";
+                        }
                       } else if (toolCall.tool === "find_files" && args.pattern) {
                         const lowerPat = String(args.pattern).toLowerCase();
                         const depthLimit = Math.min(Number(args.max_depth ?? 5), 8);
@@ -489,7 +502,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                     }
 
                     // Web tools
-                    if (useWeb && !toolResult) {
+                    if (useWeb && toolResult === undefined) {
                       if (toolCall.tool === "wikipedia_search") {
                         const lang = args.lang || "en";
                         const q = args.query || "";
@@ -505,18 +518,21 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                         }
                       } else if (toolCall.tool === "web_search" || toolCall.tool === "duckduckgo_search") {
                         const { search, SafeSearchType } = await import("duck-duck-scrape");
-                        const r = await search(args.query, { safeSearch: SafeSearchType.OFF });
-                        toolResult = JSON.stringify(r.results.slice(0, 5));
+                        const searchTimeoutMs = Math.min(WEB_FETCH_TIMEOUT_MS, deadlineMs - Date.now());
+                        const searchResult = await Promise.race([
+                          search(args.query, { safeSearch: SafeSearchType.OFF }),
+                          new Promise<never>((_, reject) =>
+                            setTimeout(() => reject(new Error(`web_search timed out after ${searchTimeoutMs}ms`)), searchTimeoutMs)
+                          ),
+                        ]);
+                        toolResult = JSON.stringify(searchResult.results.slice(0, 5));
                       } else if (toolCall.tool === "fetch_web_content" && args.url) {
-                        if (!args.url.startsWith("http://") && !args.url.startsWith("https://")) {
-                          toolResult = "Error: URL must start with http:// or https://";
-                        } else {
-                          const res = await fetch(args.url, { signal: AbortSignal.timeout(Math.min(WEB_FETCH_TIMEOUT_MS, deadlineMs - Date.now())) });
-                          const plainText = htmlToPlainText(await res.text());
-                          toolResult = plainText.length > 8000
-                            ? `${plainText.substring(0, 8000)}\n... (truncated)`
-                            : plainText;
-                        }
+                        // Use safeFetch for SSRF protection (blocks private IPs, file://, etc.)
+                        const sfRes = await safeFetch(args.url, { timeoutMs: Math.min(WEB_FETCH_TIMEOUT_MS, deadlineMs - Date.now()) });
+                        const plainText = htmlToPlainText(await sfRes.text());
+                        toolResult = plainText.length > 8000
+                          ? `${plainText.substring(0, 8000)}\n... (truncated)`
+                          : plainText;
                       } else if (allowSubAgentBrowserControl && ctx.allowBrowserControl && toolCall.tool === "browser_session_open" && args.url) {
                         if (ctx.browserSession) { await ctx.browserSession.browser.close().catch(() => {}); ctx.browserSession = null; }
                         const puppeteer = await import("puppeteer");
@@ -560,24 +576,36 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                     }
 
                     // Code tools
-                    if (useCode && !toolResult) {
+                    if (useCode && toolResult === undefined) {
                       if (toolCall.tool === "run_python" && args.python) {
                         const res = await runPythonImpl({ python: args.python, cwd });
-                        toolResult = res.stderr ? `Error: ${res.stderr}` : res.stdout;
+                        // Return both streams: stdout may contain useful output even when stderr has warnings
+                        if (res.stderr && res.stdout) {
+                          toolResult = `${res.stdout}\n[stderr]: ${res.stderr}`;
+                        } else if (res.stderr) {
+                          toolResult = `Error (stderr): ${res.stderr}`;
+                        } else {
+                          toolResult = res.stdout;
+                        }
                       } else if (toolCall.tool === "run_javascript" && args.javascript) {
                         const res = await runJavascriptImpl({ javascript: args.javascript, cwd });
-                        toolResult = res.stderr ? `Error: ${res.stderr}` : res.stdout;
+                        if (res.stderr && res.stdout) {
+                          toolResult = `${res.stdout}\n[stderr]: ${res.stderr}`;
+                        } else if (res.stderr) {
+                          toolResult = `Error (stderr): ${res.stderr}`;
+                        } else {
+                          toolResult = res.stdout;
+                        }
                       }
                     }
 
                     // RAG web content (fetch + embed + score — available when web is allowed)
-                    if (useWeb && !toolResult && toolCall.tool === "rag_web_content" && args.url && args.query) {
-                      if (!args.url.startsWith("http://") && !args.url.startsWith("https://")) {
-                        toolResult = "Error: URL must start with http:// or https://";
-                      } else if (!ctx.client) {
+                    if (useWeb && toolResult === undefined && toolCall.tool === "rag_web_content" && args.url && args.query) {
+                      if (!ctx.client) {
                         toolResult = "Error: LM Studio client unavailable for RAG.";
                       } else {
-                        const res = await fetch(args.url, { signal: AbortSignal.timeout(Math.min(WEB_FETCH_TIMEOUT_MS, deadlineMs - Date.now())) });
+                        // safeFetch provides SSRF protection (blocks private IPs, file://, etc.)
+                        const res = await safeFetch(args.url, { timeoutMs: Math.min(WEB_FETCH_TIMEOUT_MS, deadlineMs - Date.now()) });
                         const plainText = htmlToPlainText(await res.text());
                         const { performRagOnText } = await import("./helpers");
                         const topChunks = await performRagOnText(plainText, args.query, ctx.client, ctx.embeddingModelName);
@@ -585,13 +613,13 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                       }
                     }
 
-                    if (!toolResult) toolResult = "Error: Tool not found or not allowed.";
+                    if (toolResult === undefined) toolResult = `Error: Tool not found or not allowed. Allowed tools: ${allowedTools.join(", ")}.`;
                   } catch (err: any) {
                     toolResult = `Error: ${err.message}`;
                   }
                 }
 
-                msgList.push({ role: "user", content: `Tool Output: ${toolResult}` });
+                msgList.push({ role: "user", content: `Tool Output: ${toolResult ?? ""}` });
                 loops++;
 
               } else {
@@ -630,12 +658,16 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                 noToolCallCount++;
 
                 // J.1: stall detection — after 3 consecutive turns with no tool call
-                // and no termination signal, surface a structured stall status so the
+                // and no termination signal, return a structured stall error so the
                 // main agent can retry with a narrower scope rather than getting silence.
                 if (noToolCallCount >= 3) {
                   if (subAgentDebugLogging) console.log(`[Sub-Agent] Stalled after ${loops + 1} turn(s) — no tool calls for 3 consecutive turns.`);
-                  finalContent = content || finalContent;
-                  break; // break then fall through to return below
+                  const lastOutput = (content || finalContent).substring(0, 300);
+                  return {
+                    error: `Sub-agent stalled after ${loops + 1} turn(s) without completing the task. Last output: "${lastOutput}". Try splitting the task into smaller steps, or provide more specific context.`,
+                    filesModified,
+                    status: "stalled" as const,
+                  };
                 }
 
                 // TASK_FAILED is an explicit abort signal — surface it as an error so the main model
