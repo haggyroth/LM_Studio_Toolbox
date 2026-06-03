@@ -326,7 +326,7 @@ Add an `interrupt_sub_agent(message)` tool that injects a correction into the su
 | N.4 | `git_diff` word-level mode | ~30m | ✅ Done |
 | N.5 | `search_directory` exclusion patterns | ~30m | ✅ Done |
 | N.6 | `analyze_project` tool | ~2h | ✅ Done |
-| N.7 | `query_csv` and `transform_json` tools | ~3h | 📋 Planned |
+| N.7 | `query_csv` and `transform_json` tools | ~3h | ✅ Done |
 | N.8 | `watch_file` / `watch_directory` | ~3h | 📋 Planned |
 | N.9 | `find_symbol` and `find_usages` (AST) | ~3h | 📋 Planned |
 | N.10 | `capture_screenshot` tool | ~2h | 📋 Planned |
