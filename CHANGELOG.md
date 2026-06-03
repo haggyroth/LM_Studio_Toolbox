@@ -13,6 +13,17 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.10.1] — 2026-06-03
+
+### Fixed
+- **`analyze_project` name collision** — `codeTools.ts` had a tool named `analyze_project` (runs linting) that shadowed the workspace-orientation tool of the same name in `miscTools.ts`. Renamed the linting tool to **`lint_project`** with an updated description. The workspace-orientation `analyze_project` in `miscTools.ts` is unaffected.
+- **Stale ESLint disable directive** — removed an unused `// eslint-disable-next-line @typescript-eslint/no-explicit-any` in `mcpServer.ts` line 180; the `server.tool()` call on the following line uses `Record<string, unknown>`, not `any`.
+
+### Added
+- **`PLUGINS.md`** — user-facing guide covering all three plugin formats (plain object, factory function, array export), parameter schema options, error handling behaviour, and practical examples.
+
+---
+
 ## [3.10.0] — 2026-06-03
 
 ### Added

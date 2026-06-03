@@ -177,7 +177,6 @@ async function main() {
     // McpServer.tool() expects a ZodRawShape (the `.shape` property).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const shape = (t as any).parametersSchema?.shape ?? {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     server.tool(t.name, t.description, shape, async (args: Record<string, unknown>) => {
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
