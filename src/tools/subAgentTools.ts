@@ -105,6 +105,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         const subAgentProfilesStr: string = ctx.pluginConfig.get("subAgentProfiles");
         const subAgentTemperature: number = ctx.pluginConfig.get("subAgentTemperature") ?? 0.4;
         const subAgentTimeLimitSec: number = ctx.pluginConfig.get("subAgentTimeLimit") ?? 600;
+        const subAgentLoopLimit: number = Math.max(1, ctx.pluginConfig.get("subAgentLoopLimit") ?? 8);
         const debugMode: boolean = ctx.pluginConfig.get("enableDebugMode");
         const subAgentDebugLogging: boolean = ctx.pluginConfig.get("enableSubAgentDebugLogging");
         const autoSave: boolean = ctx.pluginConfig.get("subAgentAutoSave");
@@ -185,7 +186,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
             }
             if (useWeb) allowedTools.push("wikipedia_search", "web_search", "fetch_web_content", "rag_web_content");
             if (useWeb && allowSubAgentBrowserControl && ctx.allowBrowserControl) allowedTools.push("browser_session_open", "browser_session_control", "browser_session_close");
-            if (useCode && !readonlyMode) allowedTools.push("run_python", "run_javascript");
+            if (useCode && !readonlyMode) allowedTools.push("run_python", "run_javascript", "run_test_command");
 
             if (allowedTools.length > 0) {
               const readonlyNote = readonlyMode ? " (READ-ONLY mode: you may not save, modify, or delete files)" : "";
@@ -454,18 +455,19 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                         const fpath = validatePath(cwd, args.file_name);
                         const fc = await readFile(fpath, "utf-8");
                         if (!fc.includes(args.old_string)) {
-                          toolResult = "Error: 'old_string' not found exactly.";
+                          toolResult = "Error: 'old_string' not found exactly in the file. Check whitespace, line endings, and ensure the string matches the file content character-for-character.";
                         } else {
+                          // Replace the first occurrence and report if more exist, rather than erroring
                           const count = fc.split(args.old_string).length - 1;
-                          if (count > 1) {
-                            toolResult = `Error: Found ${count} occurrences. Be more specific.`;
-                          } else {
-                            await atomicWrite(fpath, fc.replace(args.old_string, args.new_string));
-                            filesModified.push(args.file_name);
-                            toolResult = "Success: Text replaced.";
-                          }
+                          const replaced = fc.replace(args.old_string, args.new_string); // replaces first occurrence only
+                          await atomicWrite(fpath, replaced);
+                          filesModified.push(args.file_name);
+                          toolResult = count > 1
+                            ? `Success: Replaced the first of ${count} occurrences. Call again to replace the next occurrence, or use a more specific old_string to target a different one.`
+                            : "Success: Text replaced.";
                         }
                       } else if (toolCall.tool === "delete_files_by_pattern" && args.pattern) {
+                        // NOTE: only matches files in the immediate workspace root (not recursive)
                         if (args.pattern.length > 100) throw new Error("Pattern too complex");
                         const regex = new RegExp(args.pattern);
                         const start = Date.now();
@@ -476,7 +478,9 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                         for (const file of files) {
                           if (regex.test(file)) { await rm(validatePath(cwd, file), { force: true }); deleted.push(file); }
                         }
-                        toolResult = `Deleted ${deleted.length} files: ${deleted.join(", ")}`;
+                        toolResult = deleted.length > 0
+                          ? `Deleted ${deleted.length} file(s) from workspace root: ${deleted.join(", ")}. Note: only searches the top-level directory — use find_files + individual deletes for subdirectory patterns.`
+                          : `No files matched pattern '${args.pattern}' in workspace root. Note: this tool only searches the top-level directory.`;
                       } else if (toolCall.tool === "fuzzy_find_local_files" && args.query) {
                         const targetDir = validatePath(cwd, args?.path || ".");
                         const maxResults = Math.min(Math.max(Number(args?.max_results ?? 5), 1), 20);
@@ -577,7 +581,21 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
 
                     // Code tools
                     if (useCode && toolResult === undefined) {
-                      if (toolCall.tool === "run_python" && args.python) {
+                      if (toolCall.tool === "run_test_command" && args.command) {
+                        // Run the test command synchronously and return full output
+                        const { spawn } = await import("child_process");
+                        const testResult = await new Promise<{ passed: boolean; stdout: string; stderr: string; exit_code: number | null }>((resolve) => {
+                          const child = spawn(args.command, { cwd, shell: true, env: { ...process.env, CI: "true" } });
+                          let stdout = ""; let stderr = "";
+                          child.stdout.on("data", d => { stdout += d.toString(); });
+                          child.stderr.on("data", d => { stderr += d.toString(); });
+                          child.on("close", code => resolve({ passed: code === 0, exit_code: code, stdout: stdout.trim(), stderr: stderr.trim() }));
+                          child.on("error", err => resolve({ passed: false, exit_code: null, stdout: "", stderr: err.message }));
+                        });
+                        const summary = testResult.passed ? "PASSED" : `FAILED (exit ${testResult.exit_code})`;
+                        const combined = [testResult.stdout, testResult.stderr].filter(Boolean).join("\n");
+                        toolResult = `${summary}\n${combined}`.substring(0, MAX_SUB_AGENT_OUTPUT_CHARS);
+                      } else if (toolCall.tool === "run_python" && args.python) {
                         const res = await runPythonImpl({ python: args.python, cwd });
                         // Return both streams: stdout may contain useful output even when stderr has warnings
                         if (res.stderr && res.stdout) {
@@ -813,7 +831,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         subAgentRunning = true;
         let primaryResult: Awaited<ReturnType<typeof runAgentLoop>>;
         try {
-          primaryResult = await runAgentLoop(agent_role, task, context, 8, false, ctx.cwd, sharedDeadlineMs, readonly);
+          primaryResult = await runAgentLoop(agent_role, task, context, subAgentLoopLimit, false, ctx.cwd, sharedDeadlineMs, readonly);
         } finally {
           subAgentRunning = false;
         }
@@ -837,7 +855,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
               chainRole,
               task,
               `Previous role (${agent_role}) output:\n${chainContext}${filesSoFar}`,
-              8, allow_tools, ctx.cwd, sharedDeadlineMs, readonly,
+              subAgentLoopLimit, allow_tools, ctx.cwd, sharedDeadlineMs, readonly,
             );
             if (chainResult.error) {
               finalResponse += `\n\n--- Chain role '${chainRole}' failed: ${chainResult.error} ---`;

@@ -13,6 +13,18 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.12.2] — 2026-06-03
+
+### Added
+- **`run_test_command` available to sub-agents** — the `tester` and `debugger` roles can now call `run_test_command` to execute test suites (`npm test`, `pytest`, etc.) directly inside the sub-agent loop. Previously only `run_python` and `run_javascript` were available for code execution, leaving the tester role unable to run the project's own test runner.
+- **`subAgentLoopLimit` config field** — controls the maximum number of LLM turns per sub-agent run (default: 8, range: 1–30). Previously hardcoded to 8 at both the primary and chain call sites. Use a lower value for simple tasks to save tokens; raise it for complex multi-step refactors.
+
+### Fixed
+- **`replace_text_in_file` no longer errors on multiple matches** — previously returned an error when `old_string` appeared more than once, forcing the model to craft a more specific string before proceeding. Now replaces the first occurrence and reports: `"Replaced the first of N occurrences. Call again to replace the next, or use a more specific old_string."` This matches the expected behaviour and avoids wasting a turn on a recoverable situation.
+- **`delete_files_by_pattern` scope documented in tool result** — the tool only searches the immediate workspace root directory (not recursive), which was undocumented and caused silent mismatches when the model expected subdirectory matches. The success and no-match messages now explicitly state this and suggest `find_files + individual deletes` for recursive patterns.
+
+---
+
 ## [3.12.1] — 2026-06-03
 
 ### Security
