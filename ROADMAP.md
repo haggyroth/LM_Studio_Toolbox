@@ -335,4 +335,4 @@ Add an `interrupt_sub_agent(message)` tool that injects a correction into the su
 | N.13 | Auto-capture memory | ~1 day | 📋 Planned |
 | N.14 | `rename_symbol` — workspace-wide atomic rename | ~1 day | ✅ Done |
 | N.15 | `edit_file_with_diff` — diff-based editing | ~1 day | ✅ Done |
-| N.16 | Sub-agent mid-task steering | ~1 day | 📋 Planned |
+| N.16 | Sub-agent mid-task steering | ~1 day | ✅ Done |

@@ -13,6 +13,18 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.9.0] — 2026-06-03
+
+### Added
+- **`interrupt_sub_agent`** — queue a steering message or cancellation for the current or next sub-agent run. Messages are injected as system messages at the start of the next agent turn via a module-level pending queue. If `cancel: true`, also signals the loop to exit cleanly after its current turn and return partial results with `status: "cancelled"`. Returns `sub_agent_currently_running` so callers know whether the message applies to an active run or will be held for the next one (N.16)
+- Sub-agent loop now checks `pendingSubAgentMessages` and `cancelSubAgentRequested` at the start of every turn (in `runAgentLoop` in `subAgentTools.ts`)
+- 7 new tests in `tests/phaseN16.test.js`
+
+### Note on architecture
+`interrupt_sub_agent` works as a pre-turn injection queue. True mid-turn interruption (while `await fetch()` is in flight) requires concurrent execution, which is not supported by the current single-threaded tool-call model. The queue approach provides full value when the agent is between turns, and is a clean foundation for future streaming-based concurrency.
+
+---
+
 ## [3.8.0] — 2026-06-03
 
 ### Added
