@@ -11,6 +11,14 @@ import { validateToolCall } from "../toolCallValidator";
 import { executeBrowserActions } from "../browserActions";
 import { runPythonImpl, runJavascriptImpl } from "./codeTools";
 
+// ── N.16: Shared steering state ───────────────────────────────────────────────
+// Messages queued here are injected as system messages at the start of the
+// next sub-agent turn. cancelSubAgentRequested signals the loop to exit
+// cleanly after its current turn completes.
+const pendingSubAgentMessages: string[] = [];
+let cancelSubAgentRequested = false;
+let subAgentRunning = false;
+
 const MAX_SUB_AGENT_OUTPUT_CHARS = 30_000;
 /** Timeout (ms) applied to all external web fetch calls inside the sub-agent. */
 const WEB_FETCH_TIMEOUT_MS = 15_000;
@@ -54,7 +62,7 @@ function htmlToPlainText(html: string): string {
 export function createSubAgentTools(ctx: ToolContext): Tool[] {
   if (!ctx.enableSecondary) return [];
 
-  return [tool({
+  const consultTool = tool({
     name: "consult_secondary_agent",
     description: "Delegate a task to a secondary agent. IMPORTANT: If the task is 'coding' or 'writing files', the secondary agent will AUTOMATICALLY CREATE AND SAVE the files to the disk. You do NOT need to save them yourself. The tool returns a list of generated files. Trust this list.",
     parameters: {
@@ -164,6 +172,20 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           const suggestedReadPath = allowFileSystem ? extractLikelyFilePath(`${taskPrompt}\n${contextData}`) : null;
 
           while (loops < loopLimit) {
+            // ── N.16: inject pending steering messages ────────────────────────
+            if (pendingSubAgentMessages.length > 0) {
+              const injections = pendingSubAgentMessages.splice(0);
+              for (const msg of injections) {
+                msgList.push({ role: "system", content: msg });
+              }
+              if (subAgentDebugLogging) console.log(`[Sub-Agent] Injected ${injections.length} steering message(s).`);
+            }
+            // ── N.16: honour cancel request ───────────────────────────────────
+            if (cancelSubAgentRequested) {
+              cancelSubAgentRequested = false;
+              return { error: "Sub-agent run cancelled by user request.", filesModified, status: "cancelled" };
+            }
+
             // ── Wall-clock deadline check (enforces subAgentTimeLimit config) ──
             const remainingMs = deadlineMs - Date.now();
             if (remainingMs <= 0) {
@@ -699,7 +721,13 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         // ── Primary agent loop ───────────────────────────────────────────────
         // Shared deadline: primary + chain + debug reviewer all share this budget.
         const sharedDeadlineMs = Date.now() + subAgentTimeLimitSec * 1000;
-        const primaryResult = await runAgentLoop(agent_role, task, context, 8, false, ctx.cwd, sharedDeadlineMs, readonly);
+        subAgentRunning = true;
+        let primaryResult: Awaited<ReturnType<typeof runAgentLoop>>;
+        try {
+          primaryResult = await runAgentLoop(agent_role, task, context, 8, false, ctx.cwd, sharedDeadlineMs, readonly);
+        } finally {
+          subAgentRunning = false;
+        }
         if (primaryResult.error) return { error: primaryResult.error };
 
         let finalResponse = primaryResult.response || "";
@@ -780,5 +808,31 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
       ctx.enableSecondary,
       "consult_secondary_agent"
     ),
-  })];
+  });
+
+  // ── N.16: interrupt_sub_agent ─────────────────────────────────────────────
+
+  const interruptTool = tool({
+    name: "interrupt_sub_agent",
+    description: "Queue a steering message or cancellation for the current or next sub-agent run. Messages are injected as system messages at the start of the next agent turn. If no sub-agent is running, the message is held and injected at the start of the next consult_secondary_agent call.",
+    parameters: {
+      message: z.string().describe("Correction or steering instruction to inject (e.g. 'Stop working on auth and focus on the database layer instead.')."),
+      cancel: z.boolean().optional().default(false).describe("If true, also signals the sub-agent to stop after its current turn and return partial results."),
+    },
+    implementation: async ({ message, cancel = false }) => {
+      pendingSubAgentMessages.push(`[User steering]: ${message}`);
+      if (cancel) cancelSubAgentRequested = true;
+      return {
+        success: true,
+        queued_message: message,
+        cancel_requested: cancel,
+        sub_agent_currently_running: subAgentRunning,
+        note: subAgentRunning
+          ? "Message will be injected at the start of the next sub-agent turn."
+          : "Message queued — will be injected at the start of the next consult_secondary_agent call.",
+      };
+    },
+  });
+
+  return [consultTool, interruptTool];
 }
