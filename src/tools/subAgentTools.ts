@@ -57,6 +57,10 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
 const MAX_ENDPOINT_RETRIES = 2;
 /** Base delay for exponential backoff on transient endpoint failures (1s → 2s → 4s). */
 const ENDPOINT_RETRY_BASE_MS = 1_000;
+/** Maximum retries on HTTP 429 (rate-limited) responses. */
+const MAX_RATE_LIMIT_RETRIES = 3;
+/** Fallback wait when a 429 response has no Retry-After header. */
+const RATE_LIMIT_FALLBACK_MS = 5_000;
 
 /**
  * Strip HTML tags, scripts, styles and decode common entities so that
@@ -251,20 +255,50 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
             // J.1: progress heartbeat — also log to debug output
             console.log(`[Sub-agent: Turn ${loops + 1}/${loopLimit}, role: ${role}]`);
 
-            // J.1: retry helper — retries up to MAX_ENDPOINT_RETRIES times on transient
-            // network failures (ECONNREFUSED, TypeError) before surfacing the error.
+            // J.1: retry helper — retries on transient network errors and HTTP 429s.
+            // Network errors: exponential backoff (1s→2s→4s), up to MAX_ENDPOINT_RETRIES.
+            // Rate-limit (429): respects Retry-After header (seconds or HTTP-date),
+            //   falls back to RATE_LIMIT_FALLBACK_MS, up to MAX_RATE_LIMIT_RETRIES.
             const fetchWithRetry = async (): Promise<Response> => {
               let lastErr: Error = new Error("Unknown fetch error");
+              let rateLimitAttempts = 0;
               for (let attempt = 0; attempt <= MAX_ENDPOINT_RETRIES; attempt++) {
                 const attemptRemaining = deadlineMs - Date.now();
                 if (attemptRemaining <= 0) throw new Error(`Sub-agent time limit (${subAgentTimeLimitSec}s) exceeded.`);
                 try {
-                  return await fetch(`${endpoint}/chat/completions`, {
+                  const response = await fetch(`${endpoint}/chat/completions`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ model: modelId, messages: msgList, temperature: subAgentTemperature, stream: false }),
                     signal: AbortSignal.timeout(attemptRemaining),
                   });
+
+                  if (response.status === 429 && rateLimitAttempts < MAX_RATE_LIMIT_RETRIES) {
+                    rateLimitAttempts++;
+                    const retryAfterHeader = response.headers.get("Retry-After");
+                    let waitMs = RATE_LIMIT_FALLBACK_MS;
+                    if (retryAfterHeader) {
+                      const seconds = Number(retryAfterHeader);
+                      if (!isNaN(seconds)) {
+                        waitMs = seconds * 1_000;
+                      } else {
+                        // HTTP-date format
+                        const retryDate = Date.parse(retryAfterHeader);
+                        if (!isNaN(retryDate)) waitMs = Math.max(0, retryDate - Date.now());
+                      }
+                    }
+                    const deadlineRemaining = deadlineMs - Date.now() - 500;
+                    if (deadlineRemaining <= 0) return response; // no time left — surface the 429
+                    waitMs = Math.min(waitMs, deadlineRemaining);
+                    if (waitMs > 0) {
+                      console.log(`[Sub-Agent] Rate-limited (429), waiting ${(waitMs / 1000).toFixed(1)}s before retry ${rateLimitAttempts}/${MAX_RATE_LIMIT_RETRIES}…`);
+                      await new Promise(r => setTimeout(r, waitMs));
+                    }
+                    attempt--; // don't consume a network-error retry slot
+                    continue;
+                  }
+
+                  return response;
                 } catch (err) {
                   lastErr = err instanceof Error ? err : new Error(String(err));
                   const isTransient = err instanceof TypeError || (err as any)?.code === "ECONNREFUSED";
