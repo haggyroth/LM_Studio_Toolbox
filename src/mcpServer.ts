@@ -30,6 +30,8 @@ const { StdioServerTransport } = require(`${_mcpSdkCjs}/server/stdio`) as any;
 /* eslint-enable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
 
 import { readFileSync, mkdirSync, writeFileSync, existsSync } from "fs";
+// Read package version once at startup so the MCP server advertises the correct version.
+const { version: PKG_VERSION } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf-8")) as { version: string };
 import { join } from "path";
 import { homedir } from "os";
 import { parseProtectedPaths, type ToolCtxLike } from "./tools/helpers";
@@ -169,7 +171,7 @@ async function main() {
   // ── Register with McpServer ────────────────────────────────────────────────
   const server = new McpServer({
     name:    "lm-studio-toolbox",
-    version: "2.0.0",
+    version: PKG_VERSION,
   });
 
   for (const t of tools) {

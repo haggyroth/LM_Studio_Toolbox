@@ -13,6 +13,22 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.11.1] — 2026-06-03
+
+### Fixed
+- **MCP server version** — the server was advertising `"2.0.0"` to MCP clients regardless of the actual package version. It now reads `package.json` at startup and passes the real version to `McpServer`.
+
+### Added
+- **`examples/plugins/`** — three annotated example plugin files covering all supported export patterns:
+  - `hello_world.js` — minimal plain-object export
+  - `call_rest_api.js` — factory export with typed Zod parameters and `fetch`
+  - `deploy_tools.js` — array export with two related `child_process` tools
+
+### Changed
+- **`CONTRIBUTING.md`** — full rewrite: project structure map, tool factory pattern with code example, `ToolContext` reference, test setup with the `better-sqlite3` skip caveat, MCP Claude Desktop config snippet, custom plugin links, and coding standards
+
+---
+
 ## [3.11.0] — 2026-06-03
 
 ### Added
