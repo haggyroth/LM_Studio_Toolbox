@@ -1,7 +1,7 @@
 import { tool, type Tool } from "@lmstudio/sdk";
 import { z } from "zod";
 import type { ToolContext } from "./context";
-import { createSafeToolImplementation, performRagOnText, safeFetch } from "./helpers";
+import { createSafeToolImplementation, performRagOnText, safeFetch, type ToolCtxLike } from "./helpers";
 type SearchProvider = "duckduckgo-api" | "duckduckgo-fetch" | "duckduckgo-html" | "google" | "bing";
 type SearchResult = { title: string; link: string; snippet: string; provider: SearchProvider };
 
@@ -244,10 +244,12 @@ export function createWebTools(ctx: ToolContext): Tool[] {
     parameters: {
       url: z.string(),
     },
-    implementation: async ({ url }) => {
+    implementation: async ({ url }, toolCtx) => {
       try {
+        toolCtx?.status?.(`Fetching ${url}…`);
         const response = await safeFetch(url, { timeoutMs: 30_000 });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        toolCtx?.status?.("Converting HTML to plain text…");
         let rawText = await response.text();
 
         const result: any = { url, status: response.status };
@@ -272,10 +274,12 @@ export function createWebTools(ctx: ToolContext): Tool[] {
       url: z.string(),
       query: z.string(),
     },
-    implementation: async ({ url, query }) => {
+    implementation: async ({ url, query }, toolCtx) => {
       try {
+        toolCtx?.status?.(`Fetching ${url}…`);
         const response = await safeFetch(url, { timeoutMs: 30_000 });
         if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+        toolCtx?.status?.("Converting HTML to plain text…");
         let rawText = await response.text();
 
         const { compile } = await import("html-to-text");
@@ -285,6 +289,7 @@ export function createWebTools(ctx: ToolContext): Tool[] {
         if (rawText.length === 0) return { error: "Could not extract any text from the URL." };
         if (!ctx.client) return { error: "LM Studio Client is not available." };
 
+        toolCtx?.status?.("Running RAG over page content…");
         const ragResults = await performRagOnText(rawText, query, ctx.client, ctx.embeddingModelName);
         return { url, query, relevant_chunks: ragResults };
       } catch (error) {
@@ -301,15 +306,19 @@ export function createWebTools(ctx: ToolContext): Tool[] {
       lang: z.string().optional().describe("Language code (default: en)"),
     },
     implementation: createSafeToolImplementation(
-      async ({ query, lang = "en" }) => {
+      async ({ query, lang = "en" }, toolCtx: ToolCtxLike) => {
         try {
+          toolCtx?.status?.(`Searching Wikipedia (${lang}) for "${query}"…`);
           const searchUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json`;
           const searchData = await (await safeFetch(searchUrl, { timeoutMs: 15_000 })).json();
 
           if (!searchData.query?.search?.length) return { results: "No Wikipedia articles found." };
 
           const results = [];
-          for (const item of searchData.query.search.slice(0, 3)) {
+          const hits = searchData.query.search.slice(0, 3);
+          for (let i = 0; i < hits.length; i++) {
+            const item = hits[i];
+            toolCtx?.status?.(`Fetching article ${i + 1}/${hits.length}: "${item.title}"…`);
             const pageUrl = `https://${lang}.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&explaintext&pageids=${item.pageid}&format=json`;
             const pageData = await (await safeFetch(pageUrl, { timeoutMs: 15_000 })).json();
             const page = pageData.query.pages[item.pageid];

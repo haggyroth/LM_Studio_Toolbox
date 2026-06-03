@@ -394,17 +394,18 @@ export function createFileTools(ctx: ToolContext): Tool[] {
       use_regex: z.boolean().optional().default(false),
       case_sensitive: z.boolean().optional().default(false).describe("Whether the search is case-sensitive. Default: false."),
     },
-    implementation: async ({ directory_path, pattern, use_regex, case_sensitive = false }) => {
+    implementation: async ({ directory_path, pattern, use_regex, case_sensitive = false }, toolCtx) => {
       try {
         const targetDir = directory_path ? validatePath(ctx.cwd, directory_path, ctx.protectedPaths) : ctx.cwd;
         const flags = case_sensitive ? "g" : "gi";
         const regex = new RegExp(use_regex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
 
-        // Phase L: collect all candidate file paths first, then search in parallel
+        // Collect all candidate file paths first, then search in parallel
         // with bounded concurrency (8 simultaneous reads) for large trees.
         const CONCURRENCY = 8;
         const filePaths: string[] = [];
 
+        toolCtx?.status?.("Collecting files…");
         async function collectFiles(dir: string): Promise<void> {
           const entries = await readdir(dir);
           await Promise.all(entries.map(async (entry) => {
@@ -419,6 +420,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         }
 
         await collectFiles(targetDir);
+        toolCtx?.status?.(`Searching ${filePaths.length} file(s) for "${pattern}"…`);
 
         const results: string[] = [];
         let searchedCount = 0;
@@ -426,6 +428,9 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         // Process files in parallel with bounded concurrency
         for (let i = 0; i < filePaths.length && results.length < 100; i += CONCURRENCY) {
           const batch = filePaths.slice(i, i + CONCURRENCY);
+          if (i > 0 && i % (CONCURRENCY * 4) === 0) {
+            toolCtx?.status?.(`Searched ${searchedCount}/${filePaths.length} files — ${results.length} match(es) so far…`);
+          }
           await Promise.all(batch.map(async (fullPath) => {
             if (results.length >= 100) return;
             try {
