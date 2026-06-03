@@ -12,7 +12,7 @@ src/
   config.ts                  # All user-configurable settings (pluginConfigSchematics)
   toolsProvider.ts           # Thin orchestrator: builds ToolContext, assembles tool list
   promptPreprocessor.ts      # First-turn injection: tools docs, memories, startup files
-  stateManager.ts            # Persists CWD and message count to ~/.beledarians-llm-toolbox/
+  stateManager.ts            # Persists CWD and message count to ~/.lm-studio-toolbox/
   toolsDocumentation.ts      # System prompt injected to the LLM on first turn
   subAgentToolCallParser.ts  # Parses tool calls out of sub-agent LLM responses
   toolCallValidator.ts       # Validates sub-agent tool call arguments before execution

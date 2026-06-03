@@ -210,7 +210,7 @@ export const en: LocaleDict = {
       `Based on the content above, please provide a response to the user query.\n\nUser query: ${userQuery}`,
 
     delegationHintAlways:
-      "\n\n**SYSTEM MANDATE:** You MUST delegate ALL information retrieval, news summaries, and **ALL coding tasks** (creation, editing, refactoring) to the secondary agent. Do NOT write code or use search tools yourself. Use `consult_secondary_agent` with `allow_tools: true`.\n\n**PRE-DELEGATION CHECKLIST:**\n1. Run `list_directory` to see what files already exist.\n2. Read `beledarian_info.md` or `README.md` if present.\n3. CALL `consult_secondary_agent` with the context.",
+      "\n\n**SYSTEM MANDATE:** You MUST delegate ALL information retrieval, news summaries, and **ALL coding tasks** (creation, editing, refactoring) to the secondary agent. Do NOT write code or use search tools yourself. Use `consult_secondary_agent` with `allow_tools: true`.\n\n**PRE-DELEGATION CHECKLIST:**\n1. Run `list_directory` to see what files already exist.\n2. Read `toolbox_info.md` or `README.md` if present.\n3. CALL `consult_secondary_agent` with the context.",
     delegationHintWhenUseful:
       "\n\n**SYSTEM ADVICE:** For complex tasks (e.g., 'create an app', 'refactor this module', 'research and summarize'), you **MUST** delegate to the secondary agent using `consult_secondary_agent` (set `allow_tools: true`).\n\n**Why Delegate?**\n- The Sub-Agent has a specialized loop for coding and debugging.\n- It will automatically SAVE all files. You do not need to do it.\n\n**How to Delegate:**\n1. Gather context (`list_directory`, `read_file`).\n2. Call `consult_secondary_agent` with a clear task description and the context you found.\n",
     delegationHintWhenUsefulDebug:

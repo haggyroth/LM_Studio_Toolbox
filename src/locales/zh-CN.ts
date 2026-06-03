@@ -212,7 +212,7 @@ export const zhCN: LocaleDict = {
     documentInjectionSuffix: (userQuery) =>
       `请基于以上内容回答用户问题。\n\n用户问题：${userQuery}`,
     delegationHintAlways:
-      "\n\n**系统要求：** 您必须将所有信息检索、新闻摘要及**所有编程任务**（创建、编辑、重构）委托给辅助智能体。请勿自行编写代码或使用搜索工具。使用 `consult_secondary_agent`（设置 `allow_tools: true`）。\n\n**委托前检查清单：**\n1. 运行 `list_directory` 查看现有文件。\n2. 阅读 `beledarian_info.md` 或 `README.md`（如存在）。\n3. 携带上下文调用 `consult_secondary_agent`。",
+      "\n\n**系统要求：** 您必须将所有信息检索、新闻摘要及**所有编程任务**（创建、编辑、重构）委托给辅助智能体。请勿自行编写代码或使用搜索工具。使用 `consult_secondary_agent`（设置 `allow_tools: true`）。\n\n**委托前检查清单：**\n1. 运行 `list_directory` 查看现有文件。\n2. 阅读 `toolbox_info.md` 或 `README.md`（如存在）。\n3. 携带上下文调用 `consult_secondary_agent`。",
     delegationHintWhenUseful:
       "\n\n**系统建议：** 对于复杂任务（例如\u201C创建一个应用\u201D、\u201C重构这个模块\u201D、\u201C研究并总结\u201D），您**必须**使用 `consult_secondary_agent`（设置 `allow_tools: true`）委托给辅助智能体。\n\n**为什么要委托？**\n- 子智能体有专门的编程和调试循环。\n- 它会自动保存所有文件，您无需手动保存。\n\n**如何委托：**\n1. 收集上下文（`list_directory`、`read_file`）。\n2. 携带明确的任务描述和收集到的上下文，调用 `consult_secondary_agent`。\n",
     delegationHintWhenUsefulDebug:

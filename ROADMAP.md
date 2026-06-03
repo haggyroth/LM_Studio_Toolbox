@@ -215,6 +215,90 @@ Track approximate token usage and elapsed time across sub-agent turns and surfac
 
 ---
 
+---
+
+## Proposed Features (Phase N — Next Cycle)
+
+Grouped by effort and impact. All items are independent and can be taken in any order.
+
+### 🔴 High Value / Low Effort (~30m–1h each)
+
+**N.1 — Atomic file writes**
+`save_file` currently uses a direct `writeFile()` which can leave a half-written file if interrupted. Fix: write to `<path>.tmp` then `rename()` to the final target — a POSIX atomic operation. Prevents file corruption during long code-generation sessions. One-line change per write site.
+
+**N.2 — `read_file` line-count and token estimate**
+Append a footer `[File: 847 lines, ~12k tokens]` when a file is read. Helps the model decide whether to use `read_file_range` instead of loading the whole file, and prevents accidental context blowout on large generated files.
+
+**N.3 — `run_test_command` streaming output**
+The tool currently blocks silently. Stream stdout line-by-line through `ctx.status()` as test results arrive — the user sees `"PASS src/auth.test.ts"` ticking by instead of a frozen spinner for 30 seconds. Pairs well with M.1's existing status infrastructure.
+
+**N.4 — `git_diff` word-level mode**
+Add a `word_diff: boolean` parameter that passes `--word-diff` to git. LLMs parse word-level diffs significantly better than line-level for prose/documentation changes. Five-line addition to `gitTools.ts`.
+
+**N.5 — `search_directory` exclusion patterns**
+Add an `exclude: string[]` parameter accepting glob patterns (e.g. `["dist", "*.min.js", "coverage"]`). Currently hardcodes only `node_modules`, `.git`, and dotfiles. A heavily requested change for large monorepos.
+
+---
+
+### 🟡 Medium Value / Moderate Effort (~2–4h each)
+
+**N.6 — `analyze_project` tool**
+A single tool that orients the model at the start of a session: 2-level directory tree, `package.json`/`pyproject.toml`/`Cargo.toml` summary, recent git commits, active branch, test command, and file count. Currently the model needs 6–8 separate tool calls to gather this context. One call should do it.
+
+**N.7 — `query_csv` and `transform_json` tools**
+Lightweight structured-data tools that work without enabling Python:
+- `query_csv(file, filter?, columns?, limit?)` — filter rows, select columns, return as JSON array
+- `transform_json(file, path_expression)` — traverse/filter a JSON document with a simple path expression
+
+Covers the 90% case for data inspection workflows.
+
+**N.8 — `watch_file` / `watch_directory` (background watcher)**
+Starts an `fs.watch()` listener registered in `backgroundCommands`. When the watched path changes, calls `send_notification` and logs the event. Enables reactive workflows: start a dev server in the background, watch `dist/` for the build output, automatically re-read when it changes.
+
+**N.9 — `find_symbol` and `find_usages` (AST-aware code search)**
+Uses `ts-morph` (already a devDependency) to add workspace-aware symbol navigation:
+- `find_symbol(name)` — locate where a TypeScript function/class/variable is defined
+- `find_usages(name, file?)` — find all call sites across the workspace
+
+Eliminates the false positives of `search_directory`'s text grep (e.g., finding the string `"render"` in a comment when you want the `render()` function). Works on TypeScript and JavaScript files.
+
+**N.10 — `capture_screenshot` tool**
+When `allowBrowserControl` is enabled, open a URL, take a screenshot, save it to the workspace, and return the file path — without requiring a persistent browser session. Enables visual regression checks and "what does this page look like?" queries in a single tool call.
+
+**N.11 — Audit log**
+Write every tool call (name, args summary, result status, elapsed ms, timestamp) to `~/.lm-studio-toolbox/audit.log` in NDJSON format. Off by default, enabled via a `enableAuditLog` config field. Lets users review what the model did during a session — especially useful for debugging unexpected file changes.
+
+---
+
+### 🟢 Bigger Bets / Longer Horizon (~1 day each)
+
+**N.12 — Custom tool plugins**
+Users drop a JavaScript file into `~/.lm-studio-toolbox/plugins/` that exports a tool definition using the same Zod schema pattern as built-in tools. The plugin loader scans the directory at startup and registers each export. Gives power users the ability to add domain-specific tools (deploy scripts, company-internal APIs) without forking the source.
+
+```javascript
+// ~/.lm-studio-toolbox/plugins/deploy.js
+module.exports = {
+  name: "deploy_to_staging",
+  description: "Deploy the app to the staging environment",
+  parameters: { env: z.enum(["staging", "canary"]) },
+  implementation: async ({ env }) => { /* ... */ }
+};
+```
+
+**N.13 — Auto-capture memory**
+The current memory system is entirely manual — the model must call `save_memory` explicitly. Add an `autoCapture` mode that distills key facts from each conversation using the secondary LM Studio endpoint and saves them automatically. No user action required. Controlled by a `memoryAutoCapture` config field.
+
+**N.14 — `rename_symbol` — workspace-wide atomic rename**
+Uses `ts-morph` to rename a TypeScript identifier across the entire workspace: updates the definition, all import statements, and all call sites in a single transaction. Currently the model needs `search_directory` + multiple `replace_text_in_file` calls and risks missing occurrences. One tool replaces 20+ calls for common refactors.
+
+**N.15 — Diff-based editing workflow**
+Add `edit_file_with_diff(file, unified_diff)` that validates a diff against the current file content before applying it (via `apply_patch`). Dramatically reduces token usage for large files — sending a 10-line diff instead of a 500-line rewrite. Pairs with a "generate diff → apply diff → verify" workflow that the model can adopt for large codebases.
+
+**N.16 — Sub-agent mid-task steering**
+Add an `interrupt_sub_agent(message)` tool that injects a correction into the sub-agent's message list on the next turn. Currently once `consult_secondary_agent` is invoked, the main agent is locked out until it finishes. This enables the user to course-correct a running sub-agent ("stop and focus on the auth module instead") without cancelling the entire run.
+
+---
+
 ## Summary Table
 
 | Phase | Description | Effort | Status |
@@ -224,11 +308,18 @@ Track approximate token usage and elapsed time across sub-agent turns and surfac
 | C | Sub-agent correctness | 0.5 day | ✅ Done |
 | D | Test suite hardening | 1–1.5 days | ✅ Done |
 | E | Consistency, performance, polish | 1 day | ✅ Done |
-| F | SSRF redirect hardening | 0.5 day | 🔄 PR #19 open |
-| G | RAG cache correctness | 2 hours | 📋 Planned |
-| H | Test coverage gaps | 3 hours | 📋 Planned |
-| I | Polish (timeouts, leaks, minor bugs) | 2 hours | 📋 Planned |
-| J | Sub-agent robustness & new roles | 1 day | 📋 Planned |
-| K | Git toolset completion | 2 hours | 📋 Planned |
-| L | Developer experience & tooling | 3 hours | 📋 Planned |
-| M | Long-term / exploratory | TBD | 📋 Exploratory |
+| F | SSRF redirect hardening | 0.5 day | ✅ Done |
+| G | RAG cache correctness | 2 hours | ✅ Done |
+| H | Test coverage gaps | 3 hours | ✅ Done |
+| I | Polish (timeouts, leaks, minor bugs) | 2 hours | ✅ Done |
+| J | Sub-agent robustness & new roles | 1 day | ✅ Done |
+| K | Git toolset completion | 2 hours | ✅ Done |
+| L | Developer experience & tooling | 3 hours | ✅ Done |
+| M.1 | Streaming tool status | 3 hours | ✅ Done |
+| M.2 | Token tracking in sub-agent | 1 hour | ✅ Done |
+| M.3 | Session persistence enrichment | 3 hours | ✅ Done |
+| M.4 | Workspace profiles | 3 hours | ✅ Done |
+| M.5 | MCP server mode | 2 days | ✅ Done |
+| N.1–5 | Quick wins (atomic writes, token estimate, test streaming, word diff, exclude patterns) | ~4 hours | 📋 Planned |
+| N.6–11 | Medium features (analyze_project, CSV/JSON tools, file watcher, AST search, screenshot, audit log) | ~2 days | 📋 Planned |
+| N.12–16 | Big bets (custom plugins, auto-memory, rename_symbol, diff editing, sub-agent steering) | ~1 week | 📋 Planned |

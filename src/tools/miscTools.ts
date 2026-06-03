@@ -296,7 +296,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
 
   // ── M.4: Workspace Profiles ───────────────────────────────────────────────
 
-  const PROFILES_PATH = pathJoin(homedir(), ".beledarians-llm-toolbox", "profiles.json");
+  const PROFILES_PATH = pathJoin(homedir(), ".lm-studio-toolbox", "profiles.json");
 
   async function loadProfiles(): Promise<Record<string, { cwd: string; protectedPaths: string[]; notes?: string }>> {
     try {
@@ -308,7 +308,7 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
   }
 
   async function saveProfiles(profiles: Record<string, { cwd: string; protectedPaths: string[]; notes?: string }>): Promise<void> {
-    const dir = pathJoin(homedir(), ".beledarians-llm-toolbox");
+    const dir = pathJoin(homedir(), ".lm-studio-toolbox");
     const { mkdir: fsMkdir } = await import("fs/promises");
     await fsMkdir(dir, { recursive: true });
     await fsWriteFile(PROFILES_PATH, JSON.stringify(profiles, null, 2), "utf-8");

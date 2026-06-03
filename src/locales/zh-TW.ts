@@ -180,7 +180,7 @@ export const zhTW: LocaleDict = {
     documentInjectionSuffix: (userQuery) =>
       `請根據以上內容回答使用者的問題。\n\n使用者問題：${userQuery}`,
     delegationHintAlways:
-      "\n\n**系統指令：** 您必須將所有資訊擷取、新聞摘要及**所有程式設計任務**委派給輔助智能體。請勿自行撰寫程式碼。使用 `consult_secondary_agent`（設定 `allow_tools: true`）。\n\n**委派前檢查：**\n1. 執行 `list_directory` 查看現有檔案。\n2. 閱讀 `beledarian_info.md` 或 `README.md`（如存在）。\n3. 攜帶上下文呼叫 `consult_secondary_agent`。",
+      "\n\n**系統指令：** 您必須將所有資訊擷取、新聞摘要及**所有程式設計任務**委派給輔助智能體。請勿自行撰寫程式碼。使用 `consult_secondary_agent`（設定 `allow_tools: true`）。\n\n**委派前檢查：**\n1. 執行 `list_directory` 查看現有檔案。\n2. 閱讀 `toolbox_info.md` 或 `README.md`（如存在）。\n3. 攜帶上下文呼叫 `consult_secondary_agent`。",
     delegationHintWhenUseful:
       "\n\n**系統建議：** 對於複雜任務，請使用 `consult_secondary_agent`（`allow_tools: true`）委派給輔助智能體。\n\n**如何委派：**\n1. 收集上下文（`list_directory`、`read_file`）。\n2. 攜帶明確任務描述呼叫 `consult_secondary_agent`。\n",
     delegationHintWhenUsefulDebug:

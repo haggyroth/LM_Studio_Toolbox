@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy this file to ~/.beledarians-llm-toolbox/mcp-config.json and adjust as needed.",
+  "_comment": "Copy this file to ~/.lm-studio-toolbox/mcp-config.json and adjust as needed.",
 
   "cwd": "/Users/yourname/Projects/my-workspace",
   "protectedPaths": "",

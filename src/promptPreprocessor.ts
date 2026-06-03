@@ -163,7 +163,7 @@ export async function promptPreprocessor(ctl: PromptPreprocessorController, user
     try {
       const { currentWorkingDirectory } = state;
       const candidateStartupPaths = [
-        join(currentWorkingDirectory, ".beledarian", "startup.md"),
+        join(currentWorkingDirectory, ".toolbox", "startup.md"),
         join(currentWorkingDirectory, "instructions", "startup.md"),
         join(currentWorkingDirectory, "startup.md"),
       ];

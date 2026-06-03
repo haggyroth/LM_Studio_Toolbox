@@ -220,7 +220,7 @@ describe("M.4 — workspace profiles", () => {
 
   before(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ws-profiles-test-"));
-    profilesPath = path.join(os.homedir(), ".beledarians-llm-toolbox", "profiles.json");
+    profilesPath = path.join(os.homedir(), ".lm-studio-toolbox", "profiles.json");
   });
   after(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
