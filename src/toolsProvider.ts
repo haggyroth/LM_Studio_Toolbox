@@ -79,13 +79,22 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     ...createSubAgentTools(ctx),
   ];
 
+  // ── Phase L: disabledTools filter ───────────────────────────────────────────
+  const disabledToolsRaw: string = pluginConfig.get("disabledTools") ?? "";
+  const disabledToolNames = new Set(
+    disabledToolsRaw.split(",").map((s: string) => s.trim()).filter(Boolean)
+  );
+  const filteredTools = disabledToolNames.size > 0
+    ? allTools.filter(t => !disabledToolNames.has(t.name))
+    : allTools;
+
   // ── Sort: casual/general-purpose tools first, advanced/developer tools second ─
   const casualTools = new Set([
     "change_directory", "list_directory", "read_file", "read_file_range",
     "save_file", "move_file", "copy_file",
     "delete_path", "delete_files_by_pattern", "make_directory",
     "find_files", "fuzzy_find_local_files", "get_file_metadata",
-    "search_in_file", "search_directory",
+    "search_in_file", "search_directory", "apply_patch",
     "replace_text_in_file", "multi_replace_text",
     "insert_at_line", "append_file", "delete_lines_in_file",
     "web_search", "fetch_web_content", "wikipedia_search",
@@ -94,10 +103,10 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     "open_file", "preview_html", "read_document",
     "save_memory", "list_memories", "search_memories", "update_memory", "delete_memory",
     "send_notification",
-    "git_pull", "git_push",
+    "git_pull", "git_push", "git_fetch", "git_stash",
   ]);
 
-  allTools.sort((a, b) => {
+  filteredTools.sort((a, b) => {
     const aCasual = casualTools.has(a.name);
     const bCasual = casualTools.has(b.name);
     if (aCasual && !bCasual) return -1;
@@ -105,5 +114,5 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     return a.name.localeCompare(b.name);
   });
 
-  return allTools;
+  return filteredTools;
 };

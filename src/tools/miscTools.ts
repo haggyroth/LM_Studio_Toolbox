@@ -148,11 +148,12 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
 
   tools.push(tool({
     name: "read_document",
-    description: "Read content from PDF or DOCX files.",
+    description: "Read content from a file, with intelligent handling for common formats. Supports PDF, DOCX, plain text (.txt, .md, .csv, .json, .xml, .html, and other text files). Large files are automatically truncated to 40,000 characters.",
     parameters: { file_path: z.string() },
     implementation: async ({ file_path }) => {
       const fpath = validatePath(ctx.cwd, file_path, ctx.protectedPaths);
-      const ext = fpath.split(".").pop()?.toLowerCase();
+      const ext = fpath.split(".").pop()?.toLowerCase() ?? "";
+      const MAX_CHARS = 40_000;
       try {
         if (ext === "pdf") {
           // pdf-parse is a CJS module — use require() for consistency with other
@@ -161,15 +162,39 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
           const pdfParse = require("pdf-parse") as (buf: Buffer) => Promise<{ text: string; info: Record<string, unknown>; numpages: number }>;
           const dataBuffer = await readFile(fpath);
           const data = await pdfParse(dataBuffer);
-          return { content: data.text, metadata: data.info, pages: data.numpages };
-        } else if (ext === "docx") {
+          const text = data.text.substring(0, MAX_CHARS);
+          return { content: text, metadata: data.info, pages: data.numpages, truncated: data.text.length > MAX_CHARS };
+        }
+
+        if (ext === "docx") {
           // mammoth has proper ESM types — dynamic import works fine here.
           const mammoth = await import("mammoth");
           const result = await mammoth.extractRawText({ path: fpath });
-          return { content: result.value, messages: result.messages };
-        } else {
-          return { error: "Unsupported document format. Use read_file for plain text files." };
+          const text = result.value.substring(0, MAX_CHARS);
+          return { content: text, messages: result.messages, truncated: result.value.length > MAX_CHARS };
         }
+
+        // Phase L: general text-file handling (txt, md, csv, json, xml, html, etc.)
+        const raw = await readFile(fpath, "utf-8");
+        const truncated = raw.length > MAX_CHARS;
+        const content = raw.substring(0, MAX_CHARS) + (truncated ? "\n… [truncated]" : "");
+
+        if (ext === "json") {
+          try {
+            JSON.parse(raw); // validate; surface parse errors as part of the result
+            return { content, format: "json", truncated, valid_json: true };
+          } catch (parseErr) {
+            return { content, format: "json", truncated, valid_json: false, parse_error: String(parseErr) };
+          }
+        }
+
+        if (ext === "csv") {
+          const lines = raw.split("\n");
+          return { content, format: "csv", truncated, row_count: lines.length, header: lines[0] ?? "" };
+        }
+
+        // txt, md, xml, html, and everything else — return as plain text
+        return { content, format: ext || "text", truncated };
       } catch (e) {
         return { error: `Failed to read document: ${e instanceof Error ? e.message : String(e)}` };
       }

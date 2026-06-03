@@ -186,5 +186,146 @@ export function createGitTools(ctx: ToolContext): Tool[] {
     },
   }));
 
+  // ── Phase K additions ──────────────────────────────────────────────────────
+
+  tools.push(tool({
+    name: "git_stash",
+    description: "Stash or restore uncommitted changes. Actions: 'push' saves working-tree changes (with optional message), 'pop' restores the latest stash, 'list' shows all stashes, 'drop' discards the latest stash.",
+    parameters: {
+      action: z.enum(["push", "pop", "list", "drop"]).default("push").describe("Stash operation to perform."),
+      message: z.string().optional().describe("Optional description for 'push' (e.g. 'WIP: half-done feature')."),
+    },
+    implementation: async ({ action, message }) => {
+      const { simpleGit } = await import("simple-git");
+      const git = simpleGit(ctx.cwd);
+      try {
+        switch (action) {
+          case "push": {
+            const args = message ? ["stash", "push", "-m", message] : ["stash", "push"];
+            await git.raw(args);
+            return { success: true, message: "Changes stashed successfully." };
+          }
+          case "pop": {
+            await git.raw(["stash", "pop"]);
+            return { success: true, message: "Latest stash applied and removed." };
+          }
+          case "list": {
+            const result = await git.raw(["stash", "list"]);
+            return { stashes: result.trim() || "No stashes found." };
+          }
+          case "drop": {
+            await git.raw(["stash", "drop"]);
+            return { success: true, message: "Latest stash dropped." };
+          }
+        }
+      } catch (e) {
+        return { error: `git stash ${action} failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }));
+
+  tools.push(tool({
+    name: "git_reset",
+    description: "Unstage files or roll back commits. Mode 'soft' keeps changes staged; 'mixed' (default) unstages them. Hard reset is intentionally unsupported — use git_checkout to discard file changes. Optionally specify paths to unstage specific files only.",
+    parameters: {
+      target: z.string().optional().default("HEAD").describe("Commit ref to reset to (default: HEAD). Examples: HEAD~1, abc1234."),
+      mode: z.enum(["soft", "mixed"]).optional().default("mixed").describe("'soft' keeps staged, 'mixed' unstages."),
+      paths: z.array(z.string()).optional().describe("If provided, only unstages these specific files (ignores mode)."),
+    },
+    implementation: async ({ target = "HEAD", mode = "mixed", paths }) => {
+      const { simpleGit } = await import("simple-git");
+      const git = simpleGit(ctx.cwd);
+      try {
+        if (paths && paths.length > 0) {
+          const valid = paths.map(p => validatePath(ctx.cwd, p, ctx.protectedPaths));
+          await git.raw(["reset", "HEAD", "--", ...valid]);
+          return { success: true, message: `Unstaged: ${paths.join(", ")}` };
+        }
+        await git.raw(["reset", `--${mode}`, target]);
+        return { success: true, message: `Reset to ${target} (--${mode}).` };
+      } catch (e) {
+        return { error: `Git reset failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }));
+
+  tools.push(tool({
+    name: "git_branch",
+    description: "List, create, or delete git branches.",
+    parameters: {
+      action: z.enum(["list", "create", "delete"]).default("list").describe("Branch action to perform."),
+      name: z.string().optional().describe("Branch name — required for create and delete."),
+      all: z.boolean().optional().default(false).describe("For 'list': include remote-tracking branches (-a)."),
+    },
+    implementation: async ({ action, name, all = false }) => {
+      const { simpleGit } = await import("simple-git");
+      const git = simpleGit(ctx.cwd);
+      try {
+        switch (action) {
+          case "list": {
+            const branches = await git.branch(all ? ["-a"] : []);
+            return { current: branches.current, branches: Object.keys(branches.branches) };
+          }
+          case "create": {
+            if (!name) return { error: "Branch name is required for 'create'." };
+            await git.raw(["branch", name]);
+            return { success: true, message: `Branch '${name}' created. Use git_checkout to switch to it.` };
+          }
+          case "delete": {
+            if (!name) return { error: "Branch name is required for 'delete'." };
+            await git.raw(["branch", "-d", name]);
+            return { success: true, message: `Branch '${name}' deleted.` };
+          }
+        }
+      } catch (e) {
+        return { error: `Git branch ${action} failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }));
+
+  tools.push(tool({
+    name: "git_merge",
+    description: "Merge a branch into the current branch. Fast-forward by default; use no_ff to always create a merge commit.",
+    parameters: {
+      branch: z.string().describe("Name of the branch to merge into the current branch."),
+      no_ff: z.boolean().optional().default(false).describe("If true, always create a merge commit even when a fast-forward is possible."),
+      message: z.string().optional().describe("Optional commit message for the merge commit."),
+    },
+    implementation: async ({ branch, no_ff = false, message }) => {
+      const { simpleGit } = await import("simple-git");
+      const git = simpleGit(ctx.cwd);
+      try {
+        const args: string[] = [branch];
+        if (no_ff) args.push("--no-ff");
+        if (message) args.push("-m", message);
+        await git.merge(args);
+        return { success: true, message: `Merged '${branch}' into current branch.` };
+      } catch (e) {
+        return { error: `Git merge failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }));
+
+  tools.push(tool({
+    name: "git_fetch",
+    description: "Fetch updates from a remote repository without merging into the current branch.",
+    parameters: {
+      remote: z.string().optional().default("origin").describe("Remote name to fetch from (default: 'origin')."),
+      prune: z.boolean().optional().default(false).describe("If true, removes stale remote-tracking refs that no longer exist on the remote (--prune)."),
+    },
+    implementation: async ({ remote = "origin", prune = false }) => {
+      const { simpleGit } = await import("simple-git");
+      const git = simpleGit(ctx.cwd);
+      try {
+        const args = ["fetch", remote];
+        if (prune) args.push("--prune");
+        await git.raw(args);
+        return { success: true, message: `Fetched from '${remote}'${prune ? " (pruned stale refs)" : ""}.` };
+      } catch (e) {
+        return { error: `Git fetch failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }));
+
   return tools;
 }

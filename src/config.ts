@@ -206,4 +206,10 @@ export const pluginConfigSchematics = createConfigSchematics()
     displayName: c.simpleSystemPrompt.displayName,
     subtitle: c.simpleSystemPrompt.subtitle,
   }, false)
+
+  // ── Tool allowlist / denylist (Phase L) ───────────────────────────────────
+  .field("disabledTools", "string", {
+    displayName: "Disabled Tools",
+    subtitle: "Comma-separated list of tool names to remove from the model's tool list, regardless of other settings. Useful for read-only or restricted configurations. Example: delete_path,execute_command,run_python",
+  }, "")
   .build();
