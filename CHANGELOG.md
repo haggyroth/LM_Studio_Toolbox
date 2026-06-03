@@ -13,6 +13,17 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.11.0] — 2026-06-03
+
+### Added
+- **`list_tools`** — meta-tool registered in `toolsProvider.ts` after all tools are assembled. Returns every enabled tool with its name and a one-line description. Optional `filter` parameter searches name and description case-insensitively. Always present regardless of config flags. Useful at the start of a session to discover what's available without reading the system prompt (Phase O2)
+- **`tool_usage_stats`** — reads `~/.lm-studio-toolbox/audit.log` (written by the N.11 audit log) and returns per-tool call counts, average elapsed ms, and error rates. Gated on `enableAuditLog` being on; returns a clear error when the log is disabled. Sortable by `calls`, `avg_ms`, or `errors` (Phase O2)
+
+### Changed
+- **`analyze_project`** — now calls `toolCtx.status()` between each of its five sections (directory tree, manifest, git, file counts, done) so users see progress in the LM Studio sidebar during long workspace scans. Also extended detected commands to include `start`, `format`, `check`, `typecheck`, and `ci` scripts alongside `test`, `build`, `dev`, and `lint` (Phase O2)
+
+---
+
 ## [3.10.1] — 2026-06-03
 
 ### Fixed

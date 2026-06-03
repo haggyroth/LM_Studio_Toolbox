@@ -1,5 +1,6 @@
-import { type Tool, type ToolsProvider } from "@lmstudio/sdk";
+import { tool, type Tool, type ToolsProvider } from "@lmstudio/sdk";
 import type { LMStudioClient } from "@lmstudio/sdk";
+import { z } from "zod";
 import { appendFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { homedir } from "os";
@@ -168,6 +169,33 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     if (!aCasual && bCasual) return 1;
     return a.name.localeCompare(b.name);
   });
+
+  // ── O2: list_tools meta-tool ──────────────────────────────────────────────────
+  // Build a lightweight registry snapshot from the finalized sorted list, then
+  // add list_tools itself at the very end so it always appears last alphabetically
+  // and is always present regardless of config flags.
+  const toolRegistry = auditedTools.map(t => ({
+    name: t.name,
+    // Take only the first sentence so the list stays concise
+    description: ((t.description as string | undefined) ?? "").replace(/\s+/g, " ").split(/[.!?]/)[0].trim().substring(0, 120),
+  }));
+
+  auditedTools.push(tool({
+    name: "list_tools",
+    description: "List all currently enabled tools with their names and one-line descriptions. Use the filter parameter to search by keyword. Useful at the start of a session to discover what's available.",
+    parameters: {
+      filter: z.string().optional().describe("Case-insensitive keyword to match against tool name or description. Omit to return all tools."),
+    },
+    implementation: async ({ filter }) => {
+      const all = filter
+        ? toolRegistry.filter(t => {
+            const q = filter.toLowerCase();
+            return t.name.includes(q) || t.description.toLowerCase().includes(q);
+          })
+        : toolRegistry;
+      return { total_enabled: toolRegistry.length, matched: all.length, tools: all };
+    },
+  }));
 
   return auditedTools;
 };
