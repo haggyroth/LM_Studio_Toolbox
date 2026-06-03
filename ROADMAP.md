@@ -327,8 +327,8 @@ Add an `interrupt_sub_agent(message)` tool that injects a correction into the su
 | N.5 | `search_directory` exclusion patterns | ~30m | ✅ Done |
 | N.6 | `analyze_project` tool | ~2h | ✅ Done |
 | N.7 | `query_csv` and `transform_json` tools | ~3h | ✅ Done |
-| N.8 | `watch_file` / `watch_directory` | ~3h | 📋 Planned |
+| N.8 | `watch_file` / `watch_directory` | ~3h | ✅ Done |
 | N.9 | `find_symbol` and `find_usages` (AST) | ~3h | ✅ Done |
-| N.10 | `capture_screenshot` tool | ~2h | 📋 Planned |
+| N.10 | `capture_screenshot` tool | ~2h | ✅ Done |
 | N.11 | Audit log | ~1h | ✅ Done |
 | N.12–16 | Big bets (custom plugins, auto-memory, rename_symbol, diff editing, sub-agent steering) | ~1 week | 📋 Planned |
