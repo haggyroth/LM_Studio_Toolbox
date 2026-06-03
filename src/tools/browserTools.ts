@@ -4,6 +4,7 @@ import type { ToolContext } from "./context";
 import { validatePath, createSafeToolImplementation } from "./helpers";
 import { executeBrowserActions } from "../browserActions";
 import { rankFuzzyMatches } from "../fuzzySearch";
+import { savePersistedState } from "../stateManager";
 
 export const browserActionSchema = z.object({
   type: z.enum(["wait_for_selector", "wait", "click", "type", "press", "select", "hover", "scroll", "evaluate"]),
@@ -160,6 +161,12 @@ export function createBrowserTools(ctx: ToolContext): Tool[] {
     implementation: createSafeToolImplementation(async () => {
       if (!ctx.browserSession) return { success: true, session_active: false, message: "No active browser session." };
       try {
+        // M.3: persist last URL before closing so it can be surfaced on session resume
+        const lastUrl = ctx.browserSession.currentUrl || ctx.browserSession.page.url();
+        if (lastUrl && lastUrl !== "about:blank") {
+          ctx.fullState.lastBrowserUrl = lastUrl;
+          savePersistedState(ctx.fullState).catch(() => {}); // fire-and-forget
+        }
         await ctx.browserSession.browser.close();
         ctx.browserSession = null;
         return { success: true, session_active: false, message: "Browser session closed." };

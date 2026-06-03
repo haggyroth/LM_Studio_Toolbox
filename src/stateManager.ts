@@ -12,6 +12,13 @@ export interface PluginState {
   subAgentDocsInjected: boolean;
   /** Locale ID to use for Layer 1 (Config UI) on next plugin restart. "auto" = OS detection. */
   uiLanguageOverride: string;
+  // ── M.3: Session persistence enrichment ────────────────────────────────────
+  /** Last URL visited in a browser session. Injected into first-turn context on resume. */
+  lastBrowserUrl?: string;
+  /** Free-text note the model saves before a context reset (via save_session_note). */
+  sessionNotes?: string;
+  /** Last N files written by save_file — gives the model a quick "what was I working on" hint. */
+  recentFiles?: string[];
 }
 
 function resolveWorkspaceDirectory(configuredWorkspacePath?: string): string {
@@ -42,6 +49,9 @@ export async function getPersistedState(configuredWorkspacePath?: string): Promi
       dontAskToCompress: state.dontAskToCompress ?? false,
       subAgentDocsInjected: state.subAgentDocsInjected ?? false,
       uiLanguageOverride: state.uiLanguageOverride ?? "auto",
+      lastBrowserUrl: state.lastBrowserUrl,
+      sessionNotes: state.sessionNotes,
+      recentFiles: state.recentFiles,
     };
   } catch {
     return {

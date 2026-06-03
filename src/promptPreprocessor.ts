@@ -215,6 +215,27 @@ export async function promptPreprocessor(ctl: PromptPreprocessorController, user
     }
 
     // --- Memory Injection (First Turn Only) ---
+    // M.3: Session resume block — inject persisted notes, last browser URL, and
+    // recently modified files so the model can pick up where it left off.
+    const { sessionNotes, lastBrowserUrl, recentFiles } = state;
+    if (sessionNotes || lastBrowserUrl || (recentFiles && recentFiles.length > 0)) {
+      const parts: string[] = ["## Resumed Session"];
+      parts.push(`Working directory: \`${state.currentWorkingDirectory}\``);
+      if (recentFiles && recentFiles.length > 0) {
+        parts.push(`Recently modified files: ${recentFiles.map(f => `\`${f}\``).join(", ")}`);
+      }
+      if (lastBrowserUrl) {
+        parts.push(`Last browser URL: ${lastBrowserUrl}`);
+      }
+      if (sessionNotes) {
+        parts.push(`Session notes: ${sessionNotes}`);
+      }
+      const resumeBlock = parts.join("\n") +
+        "\n\nYou can clear this note with `save_session_note` once you've oriented yourself.";
+      injectionContent = `${resumeBlock}\n\n---\n\n${injectionContent}`;
+      ctl.debug("[session] Injected session resume block into first-turn context.");
+    }
+
     // If the memory feature is enabled and the DB has entries, prepend a compact
     // summary so the LLM knows what it has remembered from previous sessions.
     const enableMemory = pluginConfig.get("enableMemory");

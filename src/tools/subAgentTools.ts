@@ -144,6 +144,10 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           let finalContent = "";
           const filesModified: string[] = [];
           let handoffMessage = "";
+          // M.2: token tracking — accumulate across all turns in this loop run
+          let totalPromptTokens = 0;
+          let totalCompletionTokens = 0;
+          const loopStartMs = Date.now();
 
           const suggestedReadPath = allowFileSystem ? extractLikelyFilePath(`${taskPrompt}\n${contextData}`) : null;
 
@@ -203,6 +207,11 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
               }
 
               const data = await response.json();
+              // M.2: accumulate token usage — LM Studio's OpenAI endpoint returns data.usage
+              if (data?.usage) {
+                totalPromptTokens     += data.usage.prompt_tokens     ?? 0;
+                totalCompletionTokens += data.usage.completion_tokens ?? 0;
+              }
               const message = data?.choices?.[0]?.message;
               const parsedMessage = parseSubAgentResponseMessage(message);
               const content = parsedMessage.content;
@@ -223,7 +232,13 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                 const safeResponse = looksLikePureToolCall
                   ? "[Sub-agent did not produce a prose response. It attempted a tool call but tools are disabled for this invocation.]"
                   : extracted.response;
-                return { response: safeResponse, filesModified, handoff_message: extracted.handoffMessage };
+                // M.2: include token/timing footer even for the no-tools early return
+                const elapsedSecEarly = ((Date.now() - loopStartMs) / 1000).toFixed(1);
+                const totalTokensEarly = totalPromptTokens + totalCompletionTokens;
+                const footerEarly = totalTokensEarly > 0
+                  ? `\n\n[Sub-agent: 1 turn, ~${Math.round(totalTokensEarly / 1000)}k tokens (${Math.round(totalPromptTokens / 1000)}k prompt + ${Math.round(totalCompletionTokens / 1000)}k completion), ${elapsedSecEarly}s elapsed]`
+                  : `\n\n[Sub-agent: 1 turn, ${elapsedSecEarly}s elapsed]`;
+                return { response: safeResponse + footerEarly, filesModified, handoff_message: extracted.handoffMessage };
               }
 
               // ── Refusal detection ──────────────────────────────────────────
@@ -659,7 +674,14 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
             }
           }
 
-          return { response: finalContent, filesModified, handoff_message: handoffMessage || undefined };
+          // M.2: append token/timing footer so the main agent can see the cost
+          const elapsedSec = ((Date.now() - loopStartMs) / 1000).toFixed(1);
+          const totalTokens = totalPromptTokens + totalCompletionTokens;
+          const tokenFooter = totalTokens > 0
+            ? `\n\n[Sub-agent: ${loops} turn(s), ~${Math.round(totalTokens / 1000)}k tokens (${Math.round(totalPromptTokens / 1000)}k prompt + ${Math.round(totalCompletionTokens / 1000)}k completion), ${elapsedSec}s elapsed]`
+            : `\n\n[Sub-agent: ${loops} turn(s), ${elapsedSec}s elapsed]`;
+
+          return { response: (finalContent || "") + tokenFooter, filesModified, handoff_message: handoffMessage || undefined };
         };
 
         // ── Primary agent loop ───────────────────────────────────────────────

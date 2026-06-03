@@ -102,6 +102,8 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     "get_system_info", "read_clipboard", "write_clipboard",
     "open_file", "preview_html", "read_document",
     "save_memory", "list_memories", "search_memories", "update_memory", "delete_memory",
+    "save_session_note",
+    "save_workspace_profile", "switch_workspace_profile", "list_workspace_profiles",
     "send_notification",
     "git_pull", "git_push", "git_fetch", "git_stash",
   ]);
