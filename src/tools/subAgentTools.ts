@@ -218,6 +218,62 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           let totalCompletionTokens = 0;
           const loopStartMs = Date.now();
 
+          // H: per-turn execution log — accumulated and appended to the final response
+          // so the main model can see the sub-agent's full execution path.
+          type TurnLogEntry = { turn: number; tool: string; keyArg: string; brief: string; errorDetail?: string };
+          const turnLog: TurnLogEntry[] = [];
+
+          const extractKeyArg = (tool: string, args: Record<string, any>): string => {
+            const f = String(args.file_name || args.path || args.name || "");
+            if (["read_file","read_file_range","search_in_file","save_file","replace_text_in_file",
+                 "multi_replace_text","append_file","insert_at_line","delete_lines_in_file",
+                 "delete_path","move_file","copy_file","get_file_metadata"].includes(tool)) return f;
+            if (["web_search","duckduckgo_search","wikipedia_search","rag_local_files"].includes(tool))
+              return String(args.query || "").substring(0, 60);
+            if (tool === "search_directory" || tool === "search_in_file")
+              return String(args.pattern || args.query || "").substring(0, 60);
+            if (tool === "fetch_web_content" || tool === "rag_web_content")
+              return String(args.url || "").substring(0, 60);
+            if (tool === "run_test_command") return String(args.command || "").substring(0, 60);
+            if (tool === "run_python")  return "python";
+            if (tool === "run_javascript") return "js";
+            if (tool === "list_directory") return f || ".";
+            if (["find_files","fuzzy_find_local_files","delete_files_by_pattern"].includes(tool))
+              return String(args.pattern || args.query || "").substring(0, 60);
+            return (f || String(args.query || args.pattern || "").substring(0, 60));
+          };
+
+          const summarizeResult = (tool: string, result: string): { brief: string; errorDetail?: string } => {
+            const r = (result || "").trim();
+            const isErr = r.startsWith("Error:") || r.startsWith("TOOL_VALIDATION_ERROR:");
+            if (isErr) return { brief: "error", errorDetail: r.substring(0, 200) };
+            if (tool === "run_test_command") {
+              if (r.startsWith("PASSED")) return { brief: "PASSED" };
+              return { brief: "FAILED", errorDetail: r.split("\n").slice(0, 3).join(" ").substring(0, 200) };
+            }
+            if (tool === "list_directory") {
+              try { const p = JSON.parse(r); return { brief: `${p.length} entries` }; } catch { return { brief: "success" }; }
+            }
+            if (tool === "read_file" || tool === "read_file_range") {
+              const lines = r.split("\n").length;
+              return { brief: `${lines} line${lines === 1 ? "" : "s"}${r.startsWith("[FILE TRUNCATED") ? " (truncated)" : ""}` };
+            }
+            if (tool === "save_file") {
+              const m = r.match(/Saved (\d+) files/);
+              return { brief: m ? `saved ${m[1]} files` : "saved" };
+            }
+            if (tool === "find_files" || tool === "fuzzy_find_local_files") {
+              try { const p = JSON.parse(r); return { brief: `${p.length} result${p.length === 1 ? "" : "s"}` }; } catch { return { brief: "results" }; }
+            }
+            if (tool === "search_directory" || tool === "search_in_file") {
+              if (r.includes("No matches found")) return { brief: "no matches" };
+              const c = r.split("\n").filter((l: string) => l.trim()).length;
+              return { brief: `${c} match${c === 1 ? "" : "es"}` };
+            }
+            if (r.startsWith("Success:")) return { brief: "success" };
+            return { brief: r.replace(/\n/g, " ").substring(0, 60) + (r.length > 60 ? "…" : "") };
+          };
+
           const suggestedReadPath = useFS ? extractLikelyFilePath(`${taskPrompt}\n${contextData}`) : null;
 
           while (loops < loopLimit) {
@@ -232,7 +288,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
             // ── N.16: honour cancel request ───────────────────────────────────
             if (cancelSubAgentRequested) {
               cancelSubAgentRequested = false;
-              return { error: "Sub-agent run cancelled by user request.", filesModified, status: "cancelled" };
+              return { error: "Sub-agent run cancelled by user request.", filesModified, status: "cancelled", turnLog };
             }
 
             // ── Wall-clock deadline check (enforces subAgentTimeLimit config) ──
@@ -247,6 +303,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                 error: `Sub-agent time limit (${subAgentTimeLimitSec}s) exceeded after ${loops} turn(s). Partial progress: ${progressSummary}`,
                 filesModified,
                 status: "timeout",
+                turnLog,
               };
             }
 
@@ -353,7 +410,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                 const footerEarly = totalTokensEarly > 0
                   ? `\n\n[Sub-agent: 1 turn, ~${Math.round(totalTokensEarly / 1000)}k tokens (${Math.round(totalPromptTokens / 1000)}k prompt + ${Math.round(totalCompletionTokens / 1000)}k completion), ${elapsedSecEarly}s elapsed]`
                   : `\n\n[Sub-agent: 1 turn, ${elapsedSecEarly}s elapsed]`;
-                return { response: safeResponse + footerEarly, filesModified, handoff_message: extracted.handoffMessage };
+                return { response: safeResponse + footerEarly, filesModified, handoff_message: extracted.handoffMessage, turnLog };
               }
 
               // ── Refusal detection ──────────────────────────────────────────
@@ -681,6 +738,20 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                   }
                 }
 
+                // H: record this turn in the execution log
+                const keyArg = extractKeyArg(toolCall.tool, args);
+                const { brief, errorDetail } = summarizeResult(toolCall.tool, toolResult ?? "");
+                turnLog.push({
+                  turn: loops + 1,
+                  tool: toolCall.tool,
+                  keyArg,
+                  brief,
+                  ...(errorDetail !== undefined ? { errorDetail } : {}),
+                });
+                // Enrich the live status message with what just happened
+                const keyArgStr = keyArg ? `(${keyArg})` : "";
+                toolCtx?.status?.(`Sub-agent [${role}] turn ${loops + 1}/${loopLimit} — ${toolCall.tool}${keyArgStr} → ${brief}`);
+
                 msgList.push({ role: "user", content: `Tool Output: ${toolResult ?? ""}` });
                 loops++;
 
@@ -731,6 +802,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                     error: `Sub-agent stalled after ${loops + 1} turn(s) without completing the task. Last output: "${lastOutput}". Try splitting the task into smaller steps, or provide more specific context.`,
                     filesModified,
                     status: "stalled" as const,
+                    turnLog,
                   };
                 }
 
@@ -738,7 +810,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                 // gets a clear signal rather than a garbled response containing "TASK_FAILED".
                 if (content.includes("TASK_FAILED")) {
                   const failReason = content.replace(/TASK_FAILED/g, "").trim().substring(0, 300) || "Sub-agent reported it could not complete the task.";
-                  return { error: `Sub-agent failed: ${failReason}`, filesModified, status: "failed" };
+                  return { error: `Sub-agent failed: ${failReason}`, filesModified, status: "failed", turnLog };
                 }
                 if (content.includes("TASK_COMPLETED") || shouldTreatAsFinalResponse || loops >= loopLimit - 1) break;
 
@@ -757,7 +829,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                 loops++;
               }
             } catch (err: any) {
-              return { error: err.message, filesModified };
+              return { error: err.message, filesModified, turnLog };
             }
 
             // Prevent unbounded context growth — keep system prompt + task message + recent turns
@@ -868,7 +940,20 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
             ? "\n\n[Sub-agent produced no output. If files were expected, check that subAgentAllowFileSystem is enabled in settings and the model supports JSON tool-call format.]"
             : "";
 
-          return { response: (finalContent || "") + tokenFooter + noOutputNote, filesModified, handoff_message: handoffMessage || undefined, status: "completed" as const };
+          // H: format the execution log — brief for success turns, auto-expand on errors,
+          // full detail in debug mode.
+          let execLog = "";
+          if (turnLog.length > 0) {
+            const lines = turnLog.map(e => {
+              const keyStr = e.keyArg ? `(${e.keyArg})` : "";
+              const base = `  ${e.turn}. ${e.tool}${keyStr} → ${e.brief}`;
+              const showDetail = e.errorDetail !== undefined && (subAgentDebugLogging || e.brief === "error" || e.brief === "FAILED");
+              return showDetail ? `${base}\n     ${e.errorDetail}` : base;
+            });
+            execLog = `\n\n[Execution log: ${turnLog.length} tool call${turnLog.length === 1 ? "" : "s"}]\n${lines.join("\n")}`;
+          }
+
+          return { response: (finalContent || "") + execLog + tokenFooter + noOutputNote, filesModified, handoff_message: handoffMessage || undefined, status: "completed" as const, turnLog };
         };
 
         // ── Primary agent loop ───────────────────────────────────────────────
@@ -881,7 +966,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         } finally {
           subAgentRunning = false;
         }
-        if (primaryResult.error) return { error: primaryResult.error, status: primaryResult.status };
+        if (primaryResult.error) return { error: primaryResult.error, status: primaryResult.status, turn_log: primaryResult.turnLog };
 
         let finalResponse = primaryResult.response || "";
         let handoffMessage = primaryResult.handoff_message;

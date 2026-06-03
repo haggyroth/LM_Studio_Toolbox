@@ -272,6 +272,66 @@ describe("realistic multi-turn pipeline (no live endpoint needed)", () => {
     assert.ok(!result.error, `Should return a result, got: ${result.error}`);
     assert.ok(result.task || result.response !== undefined, "Result should have task or response field");
   });
+
+  // ── H: execution log ─────────────────────────────────────────────────────────
+
+  it("execution log appears in response and has correct shape", async () => {
+    global.fetch = makeScriptedFetch([
+      JSON.stringify({ tool: "list_directory", args: {} }),
+      JSON.stringify({ tool: "read_file", args: { file_name: "hello.txt" } }),
+      JSON.stringify({ tool: "save_file", args: { file_name: "logged.txt", content: "done" } }),
+      "All done. TASK_COMPLETED",
+    ]);
+
+    const result = await callTool(tools, "consult_secondary_agent", {
+      task: "List, read, and save",
+      agent_role: "general",
+    });
+
+    assert.ok(!result.error, `Should complete without error, got: ${result.error}`);
+    assert.ok(result.response.includes("[Execution log:"), "Response should contain execution log header");
+    assert.ok(result.response.includes("list_directory"), "Log should include list_directory");
+    assert.ok(result.response.includes("read_file(hello.txt)"), "Log should include read_file with key arg");
+    assert.ok(result.response.includes("save_file(logged.txt)"), "Log should include save_file with key arg");
+  });
+
+  it("execution log entry shows error detail for failed tool calls", async () => {
+    global.fetch = makeScriptedFetch([
+      // Turn 1: deliberately bad save (file_name missing — validator catches it)
+      JSON.stringify({ tool: "save_file", args: { content: "no filename here" } }),
+      // Turn 2: model corrects itself
+      JSON.stringify({ tool: "save_file", args: { file_name: "recovered.txt", content: "ok" } }),
+      "TASK_COMPLETED",
+    ]);
+
+    const result = await callTool(tools, "consult_secondary_agent", {
+      task: "Save a file",
+      agent_role: "general",
+    });
+
+    assert.ok(!result.error);
+    // The log should show the error detail for the failed first turn
+    assert.ok(result.response.includes("error"), "Log should surface the validation error outcome");
+    assert.ok(
+      result.response.includes("TOOL_VALIDATION_ERROR") || result.response.includes("file_name"),
+      "Error detail should describe what went wrong"
+    );
+  });
+
+  it("execution log is absent when no tools are called", async () => {
+    global.fetch = makeScriptedFetch([
+      "Here is a direct answer. TASK_COMPLETED",
+    ]);
+
+    const result = await callTool(tools, "consult_secondary_agent", {
+      task: "Just answer a question",
+      agent_role: "general",
+      allow_tools: false,
+    });
+
+    assert.ok(!result.error);
+    assert.ok(!result.response.includes("[Execution log:"), "No log should appear when no tools were called");
+  });
 });
 
 // ── Suite 2: live LM Studio smoke test ───────────────────────────────────────

@@ -49,10 +49,16 @@ export async function getDb(cwd: string): Promise<{ db: any; migrationDone: bool
 export async function insertAutoMemory(cwd: string, fact: string): Promise<void> {
   try {
     const { db } = await getDb(cwd);
+    const trimmed = fact.trim();
+    // Skip exact duplicates (case-insensitive) to prevent accumulation across sessions.
+    const exists = db.prepare(
+      "SELECT 1 FROM memories WHERE LOWER(fact) = LOWER(?)"
+    ).get(trimmed);
+    if (exists) return;
     const now = new Date().toISOString();
     db.prepare(
       "INSERT INTO memories (fact, tags, created_at, updated_at) VALUES (?, ?, ?, ?)"
-    ).run(fact.trim(), "auto", now, now);
+    ).run(trimmed, "auto", now, now);
   } catch { /* native binding unavailable or DB locked — skip silently */ }
 }
 
@@ -125,12 +131,19 @@ export function createMemoryTools(ctx: ToolContext): Tool[] {
           migrated = await migrateLegacyFile(ctx.cwd, entry.db);
           entry.migrationDone = true;
         }
+        const trimmedFact = fact.trim();
+        const existing: any = entry.db.prepare(
+          "SELECT id, fact, tags FROM memories WHERE LOWER(fact) = LOWER(?)"
+        ).get(trimmedFact);
+        if (existing) {
+          return { success: true, id: existing.id, fact: existing.fact, tags: existing.tags, deduplicated: true, message: "This fact is already stored (ID " + existing.id + "). Use update_memory to change it." };
+        }
         const now = new Date().toISOString();
         const result = entry.db.prepare(
           "INSERT INTO memories (fact, tags, created_at, updated_at) VALUES (?, ?, ?, ?)"
-        ).run(fact.trim(), tags.trim(), now, now);
+        ).run(trimmedFact, tags.trim(), now, now);
         const note = migrated > 0 ? ` (also migrated ${migrated} entries from legacy memory.md)` : "";
-        return { success: true, id: result.lastInsertRowid, fact, tags, created_at: now, note };
+        return { success: true, id: result.lastInsertRowid, fact: trimmedFact, tags: tags.trim(), created_at: now, note };
       } catch (e) {
         return { error: `Failed to save memory: ${e instanceof Error ? e.message : String(e)}` };
       }
