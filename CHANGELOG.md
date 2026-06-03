@@ -13,6 +13,18 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.6.0] — 2026-06-03
+
+### Added
+- **`watch_file`** — start watching a single file for changes. Returns a watcher ID; events are buffered (last 50) and readable via `list_watches` (N.8)
+- **`watch_directory`** — start watching a directory; optional `recursive` flag monitors subdirectories. Same event-buffer pattern as `watch_file` (N.8)
+- **`stop_watch`** — stop a watcher by ID (N.8)
+- **`list_watches`** — list all active/stopped watchers with their buffered change events; optional `watcher_id` for a single entry (N.8)
+- **`capture_screenshot`** — one-shot URL screenshot: launches headless Puppeteer, navigates, captures PNG to the workspace, and returns path + metadata. Supports viewport sizing, full-page capture, selector wait, and post-navigation delay. Gated behind `allowBrowserControl` (N.10)
+- 15 new integration tests in `tests/phaseN8N10.test.js` (12 for watchers, 3 for screenshot guard paths)
+
+---
+
 ## [3.5.0] — 2026-06-03
 
 ### Added

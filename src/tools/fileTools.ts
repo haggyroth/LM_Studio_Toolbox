@@ -1,12 +1,30 @@
 import { tool, text, type Tool } from "@lmstudio/sdk";
 import { z } from "zod";
 import { rm, writeFile, readdir, readFile, stat, mkdir, rename, copyFile, appendFile as fsAppendFile, unlink } from "fs/promises";
+import { watch as fsWatch, type FSWatcher } from "fs";
 import { join, resolve, dirname, relative, sep } from "path";
 import { tmpdir } from "os";
 import type { ToolContext } from "./context";
 import { validatePath } from "./helpers";
 import { rankFuzzyMatches } from "../fuzzySearch";
 import { savePersistedState } from "../stateManager";
+import { generateId } from "../backgroundCommands";
+
+// ── N.8: File watcher registry ────────────────────────────────────────────────
+
+interface FileWatchEntry {
+  id: string;
+  watchPath: string;
+  type: "file" | "directory";
+  recursive: boolean;
+  status: "watching" | "stopped";
+  startTime: number;
+  events: Array<{ eventType: string; filename: string | null; time: string }>;
+  watcher: FSWatcher;
+}
+
+const fileWatchers = new Map<string, FileWatchEntry>();
+const WATCHER_EVENT_LIMIT = 50;
 
 /**
  * Atomic write: write to a temp file then rename into place.
@@ -650,6 +668,99 @@ export function createFileTools(ctx: ToolContext): Tool[] {
       } finally {
         await unlink(tmpFile).catch(() => {});
       }
+    },
+  }));
+
+  // ── N.8: watch_file / watch_directory / stop_watch / list_watches ────────
+
+  function startWatcher(watchPath: string, type: "file" | "directory", recursive: boolean): string {
+    const id = generateId();
+    const watcher = fsWatch(watchPath, { recursive }, (eventType, filename) => {
+      const entry = fileWatchers.get(id);
+      if (!entry || entry.status !== "watching") return;
+      entry.events.push({ eventType, filename: filename ? String(filename) : null, time: new Date().toISOString() });
+      if (entry.events.length > WATCHER_EVENT_LIMIT) entry.events.shift();
+    });
+    watcher.on("error", () => {
+      const entry = fileWatchers.get(id);
+      if (entry) entry.status = "stopped";
+    });
+    fileWatchers.set(id, { id, watchPath, type, recursive, status: "watching", startTime: Date.now(), events: [], watcher });
+    return id;
+  }
+
+  tools.push(tool({
+    name: "watch_file",
+    description: "Start watching a file for changes. Returns a watcher ID. Use list_watches to poll for change events, and stop_watch to cancel. Events are buffered (last 50).",
+    parameters: {
+      file_path: z.string().describe("Path to the file to watch."),
+    },
+    implementation: async ({ file_path }) => {
+      const fpath = validatePath(ctx.cwd, file_path, ctx.protectedPaths);
+      try { await stat(fpath); } catch { return { error: `File not found: ${file_path}` }; }
+      const id = startWatcher(fpath, "file", false);
+      return { success: true, watcher_id: id, watching: fpath, message: `Watching file. Use list_watches to poll for events.` };
+    },
+  }));
+
+  tools.push(tool({
+    name: "watch_directory",
+    description: "Start watching a directory for file system changes. Returns a watcher ID. Use list_watches to poll for change events, and stop_watch to cancel.",
+    parameters: {
+      directory_path: z.string().describe("Directory to watch."),
+      recursive: z.boolean().optional().default(false).describe("If true, watch all subdirectories recursively (default: false)."),
+    },
+    implementation: async ({ directory_path, recursive = false }) => {
+      const dpath = validatePath(ctx.cwd, directory_path, ctx.protectedPaths);
+      try {
+        const s = await stat(dpath);
+        if (!s.isDirectory()) return { error: `Not a directory: ${directory_path}` };
+      } catch { return { error: `Directory not found: ${directory_path}` }; }
+      const id = startWatcher(dpath, "directory", recursive);
+      return { success: true, watcher_id: id, watching: dpath, recursive, message: `Watching directory. Use list_watches to poll for events.` };
+    },
+  }));
+
+  tools.push(tool({
+    name: "stop_watch",
+    description: "Stop a file or directory watcher by its ID.",
+    parameters: {
+      watcher_id: z.string().describe("Watcher ID returned by watch_file or watch_directory."),
+    },
+    implementation: async ({ watcher_id }) => {
+      const entry = fileWatchers.get(watcher_id);
+      if (!entry) return { error: `No watcher found with ID '${watcher_id}'.` };
+      entry.watcher.close();
+      entry.status = "stopped";
+      return { success: true, watcher_id, message: `Watcher stopped.` };
+    },
+  }));
+
+  tools.push(tool({
+    name: "list_watches",
+    description: "List all active and recently stopped file/directory watchers, including buffered change events.",
+    parameters: {
+      watcher_id: z.string().optional().describe("If provided, return details for a specific watcher only."),
+    },
+    implementation: async ({ watcher_id }) => {
+      const entries = watcher_id
+        ? fileWatchers.has(watcher_id) ? [fileWatchers.get(watcher_id)!] : []
+        : Array.from(fileWatchers.values());
+
+      if (watcher_id && entries.length === 0) return { error: `No watcher found with ID '${watcher_id}'.` };
+
+      return {
+        watchers: entries.map(e => ({
+          id: e.id,
+          path: e.watchPath,
+          type: e.type,
+          recursive: e.recursive,
+          status: e.status,
+          running_for_seconds: Math.floor((Date.now() - e.startTime) / 1000),
+          event_count: e.events.length,
+          recent_events: e.events.slice(-10),
+        })),
+      };
     },
   }));
 

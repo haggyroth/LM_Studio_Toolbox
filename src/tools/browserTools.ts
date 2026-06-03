@@ -1,5 +1,6 @@
 import { tool, type Tool } from "@lmstudio/sdk";
 import { z } from "zod";
+import { stat } from "fs/promises";
 import type { ToolContext } from "./context";
 import { validatePath, createSafeToolImplementation } from "./helpers";
 import { executeBrowserActions } from "../browserActions";
@@ -226,6 +227,56 @@ export function createBrowserTools(ctx: ToolContext): Tool[] {
       } catch (error) {
         if (browser) await browser.close().catch(() => {});
         return { error: `Browser operation failed: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    }, ctx.allowBrowserControl, "browser_control"),
+  }));
+
+  // ── N.10: capture_screenshot ──────────────────────────────────────────────
+
+  tools.push(tool({
+    name: "capture_screenshot",
+    description: "Open a URL in a headless browser, take a screenshot, save it to the workspace, and return the file path. One-shot visual check — no persistent session required. Useful for visual regression checks, UI previews, and 'what does this page look like?' queries.",
+    parameters: {
+      url: z.string().describe("URL to screenshot (must start with http:// or https://)."),
+      output_path: z.string().optional().describe("Workspace-relative path to save the PNG (default: screenshot_<timestamp>.png)."),
+      full_page: z.boolean().optional().default(false).describe("If true, captures the full scrollable page height instead of just the viewport (default: false)."),
+      width: z.number().int().min(320).max(3840).optional().default(1280).describe("Viewport width in pixels (default: 1280)."),
+      height: z.number().int().min(240).max(2160).optional().default(800).describe("Viewport height in pixels (default: 800)."),
+      wait_for_selector: z.string().optional().describe("CSS selector to wait for before capturing (useful for SPAs that render asynchronously)."),
+      delay_ms: z.number().int().min(0).max(10000).optional().describe("Extra milliseconds to wait after navigation before capturing (0–10000)."),
+    },
+    implementation: createSafeToolImplementation(async ({ url, output_path, full_page = false, width = 1280, height = 800, wait_for_selector, delay_ms }) => {
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        return { error: "URL must start with http:// or https:// (file:// and other schemes are not allowed)." };
+      }
+      const savePath = output_path ?? `screenshot_${Date.now()}.png`;
+      const filePath = validatePath(ctx.cwd, savePath, ctx.protectedPaths);
+
+      let browser: any;
+      try {
+        const puppeteer = await import("puppeteer");
+        browser = await puppeteer.launch({ headless: true, args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+        const page = await browser.newPage();
+        await page.setViewport({ width, height });
+        await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
+        if (wait_for_selector) await page.waitForSelector(wait_for_selector, { timeout: 10000 });
+        if (delay_ms && delay_ms > 0) await new Promise(r => setTimeout(r, delay_ms));
+        await page.screenshot({ path: filePath, fullPage: full_page });
+        const { size } = await stat(filePath);
+        return {
+          success: true,
+          path: savePath,
+          url: page.url(),
+          title: await page.title(),
+          full_page,
+          viewport: { width, height },
+          file_size_bytes: size,
+          message: `Screenshot saved to ${savePath}`,
+        };
+      } catch (error) {
+        return { error: `capture_screenshot failed: ${error instanceof Error ? error.message : String(error)}` };
+      } finally {
+        if (browser) await browser.close().catch(() => {});
       }
     }, ctx.allowBrowserControl, "browser_control"),
   }));
