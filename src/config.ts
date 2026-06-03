@@ -218,4 +218,17 @@ export const pluginConfigSchematics = createConfigSchematics()
     displayName: "Enable Audit Log",
     subtitle: "Write an NDJSON entry to ~/.lm-studio-toolbox/audit.log for every tool call (name, args summary, status, elapsed ms). Useful for reviewing what the model did during a session. Default: off.",
   }, false)
+
+  // ── Auto-capture memory (N.13) ─────────────────────────────────────────────
+  .field("memoryAutoCapture", "boolean", {
+    displayName: "Auto-Capture Memories",
+    subtitle: "Automatically distil key facts from the conversation every N turns and save them as memories. Uses the Secondary Agent endpoint. Requires Enable Memory to be on. Default: off.",
+  }, false)
+  .field("memoryAutoCaptureInterval", "numeric", {
+    int: true,
+    min: 1,
+    displayName: "Auto-Capture Interval (turns)",
+    subtitle: "How often to extract and save memories (in conversation turns). Default: 5.",
+    slider: { min: 1, max: 20, step: 1 },
+  }, 5)
   .build();

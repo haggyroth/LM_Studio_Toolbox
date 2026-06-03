@@ -19,6 +19,8 @@ export interface PluginState {
   sessionNotes?: string;
   /** Last N files written by save_file — gives the model a quick "what was I working on" hint. */
   recentFiles?: string[];
+  /** N.13: Rolling buffer of recent user messages used by auto-capture memory. Capped at 15. */
+  recentUserMessages?: string[];
 }
 
 function resolveWorkspaceDirectory(configuredWorkspacePath?: string): string {
