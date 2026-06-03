@@ -447,5 +447,136 @@ export function createCodeTools(ctx: ToolContext): Tool[] {
     },
   }));
 
+  // ── N.9: find_symbol / find_usages ────────────────────────────────────────
+
+  /** Build a ts-morph Project rooted at ctx.cwd, preferring tsconfig.json. */
+  async function buildTsMorphProject() {
+    const { Project } = await import("ts-morph");
+    const tsConfigPath = join(ctx.cwd, "tsconfig.json");
+    try {
+      return new Project({ tsConfigFilePath: tsConfigPath, skipAddingFilesFromTsConfig: false });
+    } catch {
+      const p = new Project({ compilerOptions: { allowJs: true }, skipAddingFilesFromTsConfig: true });
+      p.addSourceFilesAtPaths([
+        join(ctx.cwd, "src/**/*.{ts,tsx,js,jsx}"),
+        join(ctx.cwd, "*.{ts,tsx,js,jsx}"),
+      ]);
+      return p;
+    }
+  }
+
+  /** Collect all named top-level declarations from a source file. */
+  function collectDeclarations(sf: import("ts-morph").SourceFile, kind: string) {
+    const out: import("ts-morph").Node[] = [];
+    if (kind === "any" || kind === "function") out.push(...sf.getFunctions() as unknown as import("ts-morph").Node[]);
+    if (kind === "any" || kind === "class")    out.push(...sf.getClasses()   as unknown as import("ts-morph").Node[]);
+    if (kind === "any" || kind === "interface") out.push(...sf.getInterfaces() as unknown as import("ts-morph").Node[]);
+    if (kind === "any" || kind === "type")     out.push(...sf.getTypeAliases() as unknown as import("ts-morph").Node[]);
+    if (kind === "any" || kind === "enum")     out.push(...sf.getEnums()     as unknown as import("ts-morph").Node[]);
+    if (kind === "any" || kind === "variable") out.push(...sf.getVariableDeclarations() as unknown as import("ts-morph").Node[]);
+    return out;
+  }
+
+  tools.push(tool({
+    name: "find_symbol",
+    description: "Locate where a TypeScript/JavaScript symbol (function, class, interface, variable, type, enum) is defined across the workspace. Uses AST analysis — more precise than text search, no false positives from comments or string literals.",
+    parameters: {
+      name: z.string().describe("Exact symbol name (e.g. 'MyClass', 'handleSubmit', 'UserType')."),
+      kind: z.enum(["function", "class", "interface", "type", "variable", "enum", "any"]).optional().default("any").describe("Narrow to a specific declaration kind (default: any)."),
+    },
+    implementation: async ({ name, kind = "any" }, toolCtx) => {
+      try {
+        toolCtx?.status?.("Loading TypeScript project…");
+        const project = await buildTsMorphProject();
+        const sourceFiles = project.getSourceFiles();
+        toolCtx?.status?.(`Scanning ${sourceFiles.length} source file(s) for '${name}'…`);
+
+        const definitions: Array<{ file: string; line: number; kind: string; snippet: string }> = [];
+        for (const sf of sourceFiles) {
+          const filePath = sf.getFilePath();
+          if (filePath.includes("node_modules")) continue;
+          for (const decl of collectDeclarations(sf, kind)) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const declName = (decl as any).getName?.() as string | undefined;
+            if (declName === name) {
+              const line = decl.getStartLineNumber();
+              const snippet = decl.getText().split("\n")[0].substring(0, 120);
+              definitions.push({
+                file: filePath.replace(ctx.cwd + "/", ""),
+                line,
+                kind: decl.getKindName().replace("Declaration", "").toLowerCase(),
+                snippet,
+              });
+            }
+          }
+        }
+
+        if (definitions.length === 0) {
+          return { symbol: name, found: false, message: `No declaration of '${name}' found in workspace TypeScript/JavaScript files.` };
+        }
+        return { symbol: name, found: true, count: definitions.length, definitions };
+      } catch (e) {
+        return { error: `find_symbol failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }));
+
+  tools.push(tool({
+    name: "find_usages",
+    description: "Find all reference sites for a TypeScript/JavaScript symbol across the workspace. Locates the declaration first, then traces every call/import/reference site. More accurate than grep — ignores comments and string literals.",
+    parameters: {
+      name: z.string().describe("Exact symbol name whose usages to find."),
+      definition_file: z.string().optional().describe("Relative path to the file containing the symbol's definition. Providing this speeds up lookup and resolves name ambiguity."),
+    },
+    implementation: async ({ name, definition_file }, toolCtx) => {
+      try {
+        toolCtx?.status?.("Loading TypeScript project…");
+        const project = await buildTsMorphProject();
+        const sourceFiles = project.getSourceFiles();
+        toolCtx?.status?.(`Scanning ${sourceFiles.length} file(s) to locate '${name}'…`);
+
+        // Find the declaration node
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let declarationNode: any = null;
+        for (const sf of sourceFiles) {
+          const filePath = sf.getFilePath();
+          if (filePath.includes("node_modules")) continue;
+          if (definition_file && !filePath.endsWith(definition_file.replace(/^\//, ""))) continue;
+          for (const decl of collectDeclarations(sf, "any")) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if ((decl as any).getName?.() === name) { declarationNode = decl; break; }
+          }
+          if (declarationNode) break;
+        }
+
+        if (!declarationNode) {
+          return {
+            symbol: name,
+            found: false,
+            message: `Could not locate a definition for '${name}'. Try providing definition_file to narrow the search.`,
+          };
+        }
+
+        toolCtx?.status?.("Definition found — tracing references…");
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const refNodes: any[] = declarationNode.findReferencesAsNodes?.() ?? [];
+
+        const usages = refNodes
+          .map((ref: any) => {
+            const refFile = ref.getSourceFile().getFilePath();
+            if (refFile.includes("node_modules")) return null;
+            const line: number = ref.getStartLineNumber();
+            const lineText: string = (ref.getSourceFile().getFullText().split("\n")[line - 1] ?? "").trim();
+            return { file: refFile.replace(ctx.cwd + "/", ""), line, context: lineText.substring(0, 120) };
+          })
+          .filter(Boolean);
+
+        return { symbol: name, found: true, usage_count: usages.length, usages };
+      } catch (e) {
+        return { error: `find_usages failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }));
+
   return tools;
 }

@@ -1,6 +1,6 @@
 {
   "name": "lm-studio-toolbox",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "description": "",
   "main": "index.js",
   "scripts": {
@@ -8,8 +8,8 @@
     "push": "lms push",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
-    "test": "node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js",
-    "coverage": "node_modules/.bin/c8 --reporter=text --reporter=html node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js",
+    "test": "node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js tests/phaseN9.test.js",
+    "coverage": "node_modules/.bin/c8 --reporter=text --reporter=html node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js tests/phaseN9.test.js",
     "mcp": "node dist/mcpServer.js",
     "lint": "eslint src/",
     "ci": "npm run typecheck && npm run lint && npm run build && npm run test"
@@ -28,6 +28,7 @@
     "pdf-parse": "^2.4.5",
     "puppeteer": "^24.31.0",
     "simple-git": "^3.30.0",
+    "ts-morph": "^27.0.2",
     "zod": "3.24.1"
   },
   "devDependencies": {
@@ -37,7 +38,6 @@
     "@types/node-notifier": "^8.0.5",
     "@types/pdf-parse": "^1.1.5",
     "c8": "^10.1.3",
-    "ts-morph": "^27.0.2",
     "typescript": "^5.9.3"
   }
 }
