@@ -170,4 +170,40 @@ describe("Memory CRUD tools", () => {
       `expected 'no memory found' in error, got: ${result.error}`
     );
   });
+
+  // ── Deduplication ──────────────────────────────────────────────────────────────
+
+  it("save_memory: duplicate fact returns existing id without inserting", async (t) => {
+    if (skipIfNoSqlite(t)) return;
+    const first = await callTool(tools, "save_memory", { fact: "Dedup test fact" });
+    assert.ok(first.success && !first.deduplicated, "first insert should succeed normally");
+
+    const second = await callTool(tools, "save_memory", { fact: "Dedup test fact" });
+    assert.ok(second.success, "second call should still succeed");
+    assert.ok(second.deduplicated, "second call should be flagged as a duplicate");
+    assert.equal(toNumber(second.id), toNumber(first.id), "should return the original entry's id");
+  });
+
+  it("save_memory: duplicate check is case-insensitive", async (t) => {
+    if (skipIfNoSqlite(t)) return;
+    const first = await callTool(tools, "save_memory", { fact: "Case Insensitive Dedup" });
+    assert.ok(!first.deduplicated);
+
+    const second = await callTool(tools, "save_memory", { fact: "case insensitive dedup" });
+    assert.ok(second.deduplicated, "case-different duplicate should be detected");
+    assert.equal(toNumber(second.id), toNumber(first.id));
+  });
+
+  it("insertAutoMemory: duplicate auto-fact is silently skipped", async (t) => {
+    if (skipIfNoSqlite(t)) return;
+    const { insertAutoMemory } = require("../dist/tools/memoryTools.js");
+
+    await insertAutoMemory(tmpDir, "Auto fact for dedup test");
+    await insertAutoMemory(tmpDir, "Auto fact for dedup test"); // duplicate
+    await insertAutoMemory(tmpDir, "AUTO FACT FOR DEDUP TEST"); // case variant
+
+    const result = await callTool(tools, "search_memories", { query: "Auto fact for dedup test" });
+    const matches = result.memories.filter(m => m.fact.toLowerCase().includes("auto fact for dedup"));
+    assert.equal(matches.length, 1, "only one entry should exist despite three insertions");
+  });
 });
