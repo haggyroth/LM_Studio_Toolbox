@@ -55,8 +55,8 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
 
 /** Maximum automatic retries on transient network errors before surfacing the error. */
 const MAX_ENDPOINT_RETRIES = 2;
-/** Delay (ms) between retry attempts when the secondary endpoint is unreachable. */
-const ENDPOINT_RETRY_BACKOFF_MS = 5_000;
+/** Base delay for exponential backoff on transient endpoint failures (1s → 2s → 4s). */
+const ENDPOINT_RETRY_BASE_MS = 1_000;
 
 /**
  * Strip HTML tags, scripts, styles and decode common entities so that
@@ -269,8 +269,10 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                   lastErr = err instanceof Error ? err : new Error(String(err));
                   const isTransient = err instanceof TypeError || (err as any)?.code === "ECONNREFUSED";
                   if (!isTransient || attempt === MAX_ENDPOINT_RETRIES) throw lastErr;
-                  console.log(`[Sub-Agent] Endpoint unreachable (attempt ${attempt + 1}/${MAX_ENDPOINT_RETRIES + 1}), retrying in ${ENDPOINT_RETRY_BACKOFF_MS / 1000}s… Check that LM Studio is running and the secondary model is loaded.`);
-                  await new Promise(r => setTimeout(r, ENDPOINT_RETRY_BACKOFF_MS));
+                  // Exponential backoff: 1s → 2s → 4s, capped at remaining deadline
+                  const backoffMs = Math.min(ENDPOINT_RETRY_BASE_MS * Math.pow(2, attempt), deadlineMs - Date.now());
+                  console.log(`[Sub-Agent] Endpoint unreachable (attempt ${attempt + 1}/${MAX_ENDPOINT_RETRIES + 1}), retrying in ${(backoffMs / 1000).toFixed(1)}s… Check that LM Studio is running and the secondary model is loaded.`);
+                  await new Promise(r => setTimeout(r, Math.max(0, backoffMs)));
                 }
               }
               throw lastErr;
@@ -360,7 +362,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                         const fpath = validatePath(cwd, args.file_name);
                         const readContent = await readFile(fpath, "utf-8");
                         toolResult = readContent.length > MAX_SUB_AGENT_OUTPUT_CHARS
-                          ? `${readContent.substring(0, MAX_SUB_AGENT_OUTPUT_CHARS)}\n... (truncated)`
+                          ? `[FILE TRUNCATED — showing first ${MAX_SUB_AGENT_OUTPUT_CHARS.toLocaleString()} of ${readContent.length.toLocaleString()} chars. Use read_file_range to read specific line ranges.]\n\n${readContent.substring(0, MAX_SUB_AGENT_OUTPUT_CHARS)}`
                           : readContent;
                       } else if (toolCall.tool === "read_file_range" && args.file_name) {
                         const fpath = validatePath(cwd, args.file_name);
@@ -422,7 +424,15 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                         toolResult = `Success: Content appended to ${args.file_name}`;
                       } else if (toolCall.tool === "list_directory") {
                         const listPath = args?.path ? validatePath(cwd, args.path) : cwd;
-                        toolResult = JSON.stringify(await readdir(listPath));
+                        const entries = await readdir(listPath, { withFileTypes: true });
+                        const enriched = await Promise.all(entries.map(async (e) => {
+                          const fullPath = join(listPath, e.name);
+                          const isDir = e.isDirectory();
+                          let size: number | undefined;
+                          try { if (!isDir) size = (await stat(fullPath)).size; } catch { /* ignore */ }
+                          return { name: e.name, type: isDir ? "directory" : "file", ...(size !== undefined ? { size_bytes: size } : {}) };
+                        }));
+                        toolResult = JSON.stringify(enriched);
                       } else if (toolCall.tool === "save_file") {
                         if (Array.isArray(args.files)) {
                           const savedList: string[] = [];
@@ -653,7 +663,9 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                     const autoReadStats = await stat(autoReadPath);
                     if (!autoReadStats.isFile()) throw new Error(`Not a file: ${autoReadPath}`);
                     const autoReadContent = await readFile(autoReadPath, "utf-8");
-                    const bounded = autoReadContent.length > 30000 ? `${autoReadContent.substring(0, 30000)}\n... (truncated)` : autoReadContent;
+                    const bounded = autoReadContent.length > 30000
+                      ? `[FILE TRUNCATED — showing first 30,000 of ${autoReadContent.length.toLocaleString()} chars. Use read_file_range for specific sections.]\n\n${autoReadContent.substring(0, 30000)}`
+                      : autoReadContent;
                     if (trimmed.length > 0) msgList.push({ role: "assistant", content });
                     msgList.push({ role: "user", content: `Tool Output: AUTO_FALLBACK read_file(${suggestedReadPath})\n${bounded}` });
                     executedToolCallCount++;

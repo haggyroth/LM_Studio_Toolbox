@@ -13,6 +13,15 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.12.3] — 2026-06-03
+
+### Changed
+- **`list_directory` in sub-agent now returns file metadata** — previously returned a bare array of filenames (`["a.ts", "b.ts"]`). Now returns `[{name, type, size_bytes}]` so the model can distinguish files from directories and choose what to read without a separate stat call, saving 1–2 turns per workspace orientation.
+- **Read truncation notice prepended, not appended** — `read_file` and auto-fallback reads previously appended `\n... (truncated)` at the end of 30 000-character dumps, where the model might not see it. The notice is now prepended: `[FILE TRUNCATED — showing first 30,000 of N chars. Use read_file_range for specific line ranges.]` so the model knows immediately that the content is partial.
+- **Endpoint retry backoff changed from fixed 5 s to exponential 1 s → 2 s → 4 s** — the previous 5 s × 2 retries = up to 10 s wasted per turn on a transient failure, multiplied across 8 turns. Exponential backoff (base 1 s, cap at remaining deadline) is faster when the endpoint recovers quickly and still backs off appropriately when it doesn't.
+
+---
+
 ## [3.12.2] — 2026-06-03
 
 ### Added
