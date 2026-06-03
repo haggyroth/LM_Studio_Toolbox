@@ -671,6 +671,50 @@ export function createFileTools(ctx: ToolContext): Tool[] {
     },
   }));
 
+  // ── N.15: edit_file_with_diff ─────────────────────────────────────────────
+
+  tools.push(tool({
+    name: "edit_file_with_diff",
+    description: "Apply a unified diff to a specific file. Validates the patch applies cleanly before making any changes — if validation fails, the file is left untouched. Dramatically reduces token usage for large files: send a 10-line diff instead of a full 500-line rewrite. The diff must target a single file; for multi-file patches use apply_patch.",
+    parameters: {
+      file_path: z.string().describe("Workspace-relative path to the file to edit."),
+      unified_diff: z.string().describe("Unified diff in standard format. Context lines must match the current file exactly. If --- / +++ headers are omitted, they are added automatically."),
+    },
+    implementation: async ({ file_path, unified_diff }) => {
+      const fpath = validatePath(ctx.cwd, file_path, ctx.protectedPaths);
+      // Normalise: ensure the diff has --- / +++ headers git apply expects
+      let diff = unified_diff.trimStart();
+      if (!diff.startsWith("---")) {
+        diff = `--- a/${file_path}\n+++ b/${file_path}\n${diff}`;
+      }
+      const tmpFile = join(tmpdir(), `toolbox-diff-${Date.now()}.patch`);
+      try {
+        await writeFile(tmpFile, diff, "utf-8");
+        const { simpleGit } = await import("simple-git");
+        const git = simpleGit(ctx.cwd);
+        // Validate first — abort if it won't apply cleanly
+        try {
+          await git.raw(["apply", "--check", "--", tmpFile]);
+        } catch (checkErr) {
+          const msg = checkErr instanceof Error ? checkErr.message : String(checkErr);
+          return {
+            error: `Diff does not apply cleanly to '${file_path}': ${msg.trim()}`,
+            hint: "Ensure context lines in the diff match the current file content exactly. Re-read the file with read_file to get the current content.",
+          };
+        }
+        await git.raw(["apply", "--", tmpFile]);
+        // Read back the result to confirm and return stats
+        const newContent = await readFile(fpath, "utf-8");
+        const lines = newContent.split("\n").length;
+        return { success: true, file: file_path, lines_after_edit: lines, message: `Diff applied successfully to '${file_path}'.` };
+      } catch (e) {
+        return { error: `edit_file_with_diff failed: ${e instanceof Error ? e.message : String(e)}` };
+      } finally {
+        await unlink(tmpFile).catch(() => {});
+      }
+    },
+  }));
+
   // ── N.8: watch_file / watch_directory / stop_watch / list_watches ────────
 
   function startWatcher(watchPath: string, type: "file" | "directory", recursive: boolean): string {

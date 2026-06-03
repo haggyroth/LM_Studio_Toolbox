@@ -578,5 +578,89 @@ export function createCodeTools(ctx: ToolContext): Tool[] {
     },
   }));
 
+  // ── N.14: rename_symbol ───────────────────────────────────────────────────
+
+  tools.push(tool({
+    name: "rename_symbol",
+    description: "Rename a TypeScript/JavaScript symbol across the entire workspace — updates the definition and every import, call, and reference site atomically. Returns a list of all modified files. More reliable than search-and-replace: uses the TypeScript compiler to find exact references, not text matches.",
+    parameters: {
+      old_name: z.string().describe("Current exact symbol name."),
+      new_name: z.string().describe("New symbol name (must be a valid identifier)."),
+      definition_file: z.string().optional().describe("Relative path to the file where the symbol is defined. Disambiguates when multiple files define the same name."),
+    },
+    implementation: async ({ old_name, new_name, definition_file }, toolCtx) => {
+      if (!/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(new_name)) {
+        return { error: `'${new_name}' is not a valid JavaScript/TypeScript identifier.` };
+      }
+      if (old_name === new_name) {
+        return { error: "old_name and new_name are the same — nothing to do." };
+      }
+      try {
+        toolCtx?.status?.("Loading TypeScript project…");
+        const project = await buildTsMorphProject();
+        const sourceFiles = project.getSourceFiles();
+        toolCtx?.status?.(`Scanning ${sourceFiles.length} file(s) for '${old_name}'…`);
+
+        // Locate the declaration node
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let declarationNode: any = null;
+        for (const sf of sourceFiles) {
+          const fp = sf.getFilePath();
+          if (fp.includes("node_modules")) continue;
+          if (definition_file && !fp.endsWith(definition_file.replace(/^\//, ""))) continue;
+          for (const decl of collectDeclarations(sf, "any")) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            if ((decl as any).getName?.() === old_name) { declarationNode = decl; break; }
+          }
+          if (declarationNode) break;
+        }
+
+        if (!declarationNode) {
+          return { error: `Could not find a declaration for '${old_name}'. Try providing definition_file to narrow the search.` };
+        }
+
+        toolCtx?.status?.(`Renaming '${old_name}' → '${new_name}' across workspace…`);
+
+        // ts-morph rename: updates all references in memory
+        declarationNode.rename(new_name);
+
+        // Collect files whose in-memory content now differs from disk
+        const dirty = sourceFiles.filter(sf => !sf.isSaved() && !sf.getFilePath().includes("node_modules"));
+
+        if (dirty.length === 0) {
+          return { warning: `'${old_name}' found but no files needed updating. The symbol may have no external references.` };
+        }
+
+        toolCtx?.status?.(`Saving ${dirty.length} modified file(s) atomically…`);
+
+        const { writeFile: fsWrite, rename: fsRename, unlink: fsUnlink } = await import("fs/promises");
+        const saved: string[] = [];
+        for (const sf of dirty) {
+          const fp = sf.getFilePath();
+          const tmp = `${fp}.__rename_tmp`;
+          try {
+            await fsWrite(tmp, sf.getFullText(), "utf-8");
+            await fsRename(tmp, fp);
+            saved.push(fp.replace(ctx.cwd + "/", ""));
+          } catch (e) {
+            await fsUnlink(tmp).catch(() => {});
+            throw new Error(`Failed to save ${fp.replace(ctx.cwd + "/", "")}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+
+        return {
+          success: true,
+          old_name,
+          new_name,
+          files_modified: saved.length,
+          modified_files: saved,
+          message: `Renamed '${old_name}' → '${new_name}' in ${saved.length} file(s).`,
+        };
+      } catch (e) {
+        return { error: `rename_symbol failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+  }));
+
   return tools;
 }
