@@ -1,0 +1,21 @@
+{
+  "_comment": "Copy this file to ~/.beledarians-llm-toolbox/mcp-config.json and adjust as needed.",
+
+  "cwd": "/Users/yourname/Projects/my-workspace",
+  "protectedPaths": "",
+
+  "allowGit":         true,
+  "allowGitHubTools": false,
+  "allowDb":          false,
+  "allowJavascript":  false,
+  "allowPython":      false,
+  "allowShell":       false,
+  "allowTerminal":    false,
+  "allowNotify":      false,
+
+  "enableMemory":     false,
+  "enableWikipedia":  true,
+
+  "_disabledToolsNote": "Comma-separated tool names to exclude entirely.",
+  "disabledTools": ""
+}
