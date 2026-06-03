@@ -5,6 +5,11 @@ import { readFile } from "fs/promises";
 import * as os from "os";
 import type { ToolContext } from "./context";
 import { validatePath, ragLocalFiles } from "./helpers";
+import { savePersistedState } from "../stateManager";
+import { writeFile as fsWriteFile } from "fs/promises";
+import { join as pathJoin } from "path";
+import { homedir } from "os";
+import { parseProtectedPaths } from "./helpers";
 
 export function createMiscTools(ctx: ToolContext): Tool[] {
   const tools: Tool[] = [];
@@ -273,6 +278,106 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
       },
     }));
   }
+
+  // ── M.3: save_session_note ────────────────────────────────────────────────
+
+  tools.push(tool({
+    name: "save_session_note",
+    description: "Save a free-text note about your current progress or next steps. The note is persisted to disk and will be injected into the context at the start of the next conversation, helping you resume exactly where you left off after a context reset.",
+    parameters: {
+      note: z.string().describe("Brief summary of current state, progress made, and next steps. Injected at conversation start on resume."),
+    },
+    implementation: async ({ note }) => {
+      ctx.fullState.sessionNotes = note.trim();
+      await savePersistedState(ctx.fullState);
+      return { success: true, message: "Session note saved. It will appear in context when this conversation is resumed." };
+    },
+  }));
+
+  // ── M.4: Workspace Profiles ───────────────────────────────────────────────
+
+  const PROFILES_PATH = pathJoin(homedir(), ".beledarians-llm-toolbox", "profiles.json");
+
+  async function loadProfiles(): Promise<Record<string, { cwd: string; protectedPaths: string[]; notes?: string }>> {
+    try {
+      const raw = await readFile(PROFILES_PATH, "utf-8");
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+
+  async function saveProfiles(profiles: Record<string, { cwd: string; protectedPaths: string[]; notes?: string }>): Promise<void> {
+    const dir = pathJoin(homedir(), ".beledarians-llm-toolbox");
+    const { mkdir: fsMkdir } = await import("fs/promises");
+    await fsMkdir(dir, { recursive: true });
+    await fsWriteFile(PROFILES_PATH, JSON.stringify(profiles, null, 2), "utf-8");
+  }
+
+  tools.push(tool({
+    name: "save_workspace_profile",
+    description: "Save the current workspace as a named profile (CWD + protected paths + optional note). Switch between profiles with switch_workspace_profile.",
+    parameters: {
+      name: z.string().describe("Profile name (e.g. 'frontend', 'api', 'infra')."),
+      notes: z.string().optional().describe("Optional description of this workspace context."),
+    },
+    implementation: async ({ name, notes }) => {
+      const profiles = await loadProfiles();
+      profiles[name] = {
+        cwd: ctx.cwd,
+        protectedPaths: ctx.protectedPaths,
+        ...(notes ? { notes } : {}),
+      };
+      await saveProfiles(profiles);
+      return { success: true, message: `Profile '${name}' saved (cwd: ${ctx.cwd}).` };
+    },
+  }));
+
+  tools.push(tool({
+    name: "switch_workspace_profile",
+    description: "Switch to a saved workspace profile, updating the current directory and protected paths instantly.",
+    parameters: {
+      name: z.string().describe("Name of the profile to switch to."),
+    },
+    implementation: async ({ name }) => {
+      const profiles = await loadProfiles();
+      const profile = profiles[name];
+      if (!profile) {
+        const available = Object.keys(profiles);
+        return { error: `Profile '${name}' not found. Available: ${available.length > 0 ? available.join(", ") : "(none)"}` };
+      }
+      ctx.cwd = profile.cwd;
+      ctx.protectedPaths = parseProtectedPaths(profile.protectedPaths.join(","));
+      ctx.fullState.currentWorkingDirectory = profile.cwd;
+      await savePersistedState(ctx.fullState);
+      return {
+        success: true,
+        cwd: ctx.cwd,
+        protected_paths: ctx.protectedPaths,
+        notes: profile.notes,
+        message: `Switched to profile '${name}'. CWD is now: ${ctx.cwd}`,
+      };
+    },
+  }));
+
+  tools.push(tool({
+    name: "list_workspace_profiles",
+    description: "List all saved workspace profiles.",
+    parameters: {},
+    implementation: async () => {
+      const profiles = await loadProfiles();
+      const keys = Object.keys(profiles);
+      if (keys.length === 0) return { profiles: [], message: "No workspace profiles saved yet. Use save_workspace_profile to create one." };
+      return {
+        profiles: keys.map(k => ({
+          name: k,
+          cwd: profiles[k].cwd,
+          notes: profiles[k].notes,
+          current: profiles[k].cwd === ctx.cwd,
+        })),
+      };
+    },
+  }));
 
   return tools;
 }

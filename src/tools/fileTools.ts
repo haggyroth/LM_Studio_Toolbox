@@ -137,6 +137,16 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         }
       }
 
+      // M.3: track recently written files (capped at 10) for session resume context
+      if (savedPaths.length > 0) {
+        const recent = ctx.fullState.recentFiles ?? [];
+        const relative_ = savedPaths.map(p => {
+          try { return relative(ctx.cwd, p); } catch { return p; }
+        });
+        ctx.fullState.recentFiles = [...new Set([...relative_, ...recent])].slice(0, 10);
+        savePersistedState(ctx.fullState).catch(() => {}); // fire-and-forget
+      }
+
       if (errors.length > 0 && savedPaths.length === 0) return { error: errors.join("\n") };
       return { success: true, paths: savedPaths, errors: errors.length > 0 ? errors : undefined };
     },
