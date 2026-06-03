@@ -412,8 +412,8 @@ export function createCodeTools(ctx: ToolContext): Tool[] {
   }));
 
   tools.push(tool({
-    name: "analyze_project",
-    description: "Run project-wide analysis (linting) to find errors and warnings.",
+    name: "lint_project",
+    description: "Run project-wide linting to find errors and style warnings. Auto-detects the linter from package.json (ESLint) or file types (Pylint for Python).",
     parameters: {},
     implementation: async () => {
       const { readFile, readdir } = await import("fs/promises");
