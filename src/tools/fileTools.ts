@@ -1,7 +1,8 @@
 import { tool, text, type Tool } from "@lmstudio/sdk";
 import { z } from "zod";
-import { rm, writeFile, readdir, readFile, stat, mkdir, rename, copyFile, appendFile as fsAppendFile } from "fs/promises";
+import { rm, writeFile, readdir, readFile, stat, mkdir, rename, copyFile, appendFile as fsAppendFile, unlink } from "fs/promises";
 import { join, resolve, dirname, relative, sep } from "path";
+import { tmpdir } from "os";
 import type { ToolContext } from "./context";
 import { validatePath } from "./helpers";
 import { rankFuzzyMatches } from "../fuzzySearch";
@@ -398,36 +399,49 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         const targetDir = directory_path ? validatePath(ctx.cwd, directory_path, ctx.protectedPaths) : ctx.cwd;
         const flags = case_sensitive ? "g" : "gi";
         const regex = new RegExp(use_regex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+
+        // Phase L: collect all candidate file paths first, then search in parallel
+        // with bounded concurrency (8 simultaneous reads) for large trees.
+        const CONCURRENCY = 8;
+        const filePaths: string[] = [];
+
+        async function collectFiles(dir: string): Promise<void> {
+          const entries = await readdir(dir);
+          await Promise.all(entries.map(async (entry) => {
+            if (entry === "node_modules" || entry === ".git" || entry.startsWith(".")) return;
+            const fullPath = join(dir, entry);
+            try {
+              const st = await stat(fullPath);
+              if (st.isDirectory()) await collectFiles(fullPath);
+              else if (st.isFile() && st.size <= 2_000_000) filePaths.push(fullPath);
+            } catch { /* skip inaccessible entries */ }
+          }));
+        }
+
+        await collectFiles(targetDir);
+
         const results: string[] = [];
         let searchedCount = 0;
 
-        async function search(dir: string) {
-          const files = await readdir(dir);
-          for (const file of files) {
-            if (file === "node_modules" || file === ".git" || file.startsWith(".")) continue;
-            const fullPath = join(dir, file);
-            const st = await stat(fullPath);
-            if (st.isDirectory()) {
-              await search(fullPath);
-            } else if (st.isFile()) {
-              if (st.size > 2000000) continue;
-              try {
-                const content = await readFile(fullPath, "utf-8");
-                if (content.includes("\0")) continue;
-                const lines = content.split("\n");
-                for (let i = 0; i < lines.length; i++) {
-                  if (lines[i].match(regex)) {
-                    results.push(`${relative(ctx.cwd, fullPath)}:${i + 1} => ${lines[i].trim()}`);
-                    if (results.length >= 100) return;
-                  }
+        // Process files in parallel with bounded concurrency
+        for (let i = 0; i < filePaths.length && results.length < 100; i += CONCURRENCY) {
+          const batch = filePaths.slice(i, i + CONCURRENCY);
+          await Promise.all(batch.map(async (fullPath) => {
+            if (results.length >= 100) return;
+            try {
+              const content = await readFile(fullPath, "utf-8");
+              if (content.includes("\0")) return; // skip binary
+              const lines = content.split("\n");
+              for (let j = 0; j < lines.length && results.length < 100; j++) {
+                if (lines[j].match(regex)) {
+                  results.push(`${relative(ctx.cwd, fullPath)}:${j + 1} => ${lines[j].trim()}`);
                 }
-                searchedCount++;
-              } catch { /* ignore unreadable files */ }
-            }
-          }
+              }
+              searchedCount++;
+            } catch { /* skip unreadable files */ }
+          }));
         }
 
-        await search(targetDir);
         if (results.length === 0) return { message: `No matches found. Searched ${searchedCount} files.` };
         return { matches: results, message: `Found ${results.length} matches across ${searchedCount} files searched.` };
       } catch (e) {
@@ -552,6 +566,37 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         };
       } catch (error) {
         return { error: `Failed to get metadata: ${error instanceof Error ? error.message : String(error)}` };
+      }
+    },
+  }));
+
+  // ── apply_patch (Phase L) ────────────────────────────────────────────────────
+
+  tools.push(tool({
+    name: "apply_patch",
+    description: "Apply a unified diff patch to files in the workspace. Accepts standard unified diff format (output of `git diff` or `diff -u`). Requires git to be installed. Use dry_run: true to verify the patch applies cleanly before committing.",
+    parameters: {
+      patch: z.string().describe("Unified diff content to apply."),
+      dry_run: z.boolean().optional().default(false).describe("If true, checks whether the patch applies cleanly without making any changes."),
+    },
+    implementation: async ({ patch, dry_run = false }) => {
+      const tmpFile = join(tmpdir(), `toolbox-patch-${Date.now()}.diff`);
+      try {
+        await writeFile(tmpFile, patch, "utf-8");
+        const { simpleGit } = await import("simple-git");
+        const git = simpleGit(ctx.cwd);
+        const args = ["apply"];
+        if (dry_run) args.push("--check");
+        args.push("--", tmpFile);
+        await git.raw(args);
+        return {
+          success: true,
+          message: dry_run ? "Patch applies cleanly (dry run — no changes made)." : "Patch applied successfully.",
+        };
+      } catch (e) {
+        return { error: `Patch ${dry_run ? "check" : "apply"} failed: ${e instanceof Error ? e.message : String(e)}` };
+      } finally {
+        await unlink(tmpFile).catch(() => {});
       }
     },
   }));
