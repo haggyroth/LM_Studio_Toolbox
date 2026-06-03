@@ -13,6 +13,25 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.12.0] — 2026-06-03
+
+### Fixed
+- **`TASK_FAILED` now returns `{ error }` explicitly** — previously the sub-agent loop would break on `TASK_FAILED` and surface the raw response to the main model (which might include the string "TASK_FAILED" buried in prose). Now it returns a structured `{ error: "Sub-agent failed: ...", status: "failed" }` so the main model immediately knows the task didn't complete.
+- **Context pruning now preserves the task message** — when the message list exceeds 20 entries, both the system prompt (`msgList[0]`) and the original task message (`msgList[1]`) are kept alongside the 16 most recent messages. Previously only the system prompt was kept, causing the model to forget its objective mid-run.
+
+### Added
+- **Pre-flight endpoint health check** — before the agent loop starts, a `GET {endpoint}/models` call with a 4-second timeout verifies the secondary endpoint is reachable and returns a clear, actionable error if not (instead of silently failing for 8 turns).
+- **Role-implied tool access** — file-writing roles (`coder`, `reviewer`, `debugger`, `tester`, `documenter`, `planner`, `data_analyst`, `general`) now have filesystem access enabled automatically based on their role, without requiring the main model to pass `allow_tools: true`. Individual tool categories are still gated by the user's `subAgentAllowFileSystem`/`subAgentAllowWeb`/`subAgentAllowCode` config flags.
+- **`get_sub_agent_result` tool** — retrieves the last sub-agent result from `~/.lm-studio-toolbox/last_sub_agent_result.json` without starting a new session. Solves the "main model calls sub-agent repeatedly" problem — the main model can use this to re-read output after a context reset.
+- **Result persistence** — every completed sub-agent run is written to `~/.lm-studio-toolbox/last_sub_agent_result.json` (task summary, response snippet, generated files, timestamp).
+- **"general" role persona** added to default `subAgentProfiles` — gives the general-purpose role clear direction instead of falling back to a blank `"You are a helpful assistant."` prompt.
+- **Empty-output warning** — when tools were enabled but the sub-agent produced no output and wrote no files, a diagnostic message is appended explaining what to check.
+- **`SUB_AGENT.md`** — comprehensive guide covering how the pipeline works, LM Link remote model considerations, role→tool mapping table, common failure modes, and a debugging checklist.
+- Improved `consult_secondary_agent` description listing all roles with one-line descriptions and noting that file-writing roles have filesystem access automatically.
+- `status: "completed" | "failed" | "timeout" | "cancelled"` field in all `runAgentLoop` return values.
+
+---
+
 ## [3.11.1] — 2026-06-03
 
 ### Fixed

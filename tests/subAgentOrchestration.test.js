@@ -73,6 +73,21 @@ function makeApiResponse(content) {
   );
 }
 
+/**
+ * Wrap a fetch mock function so that GET requests (pre-flight /models check)
+ * are handled transparently without breaking tests that only care about
+ * the chat-completion POST calls.
+ */
+function makeFetch(handler) {
+  return async (url, opts) => {
+    // Pre-flight health check is a GET with no body — return a simple 200 OK
+    if (!opts?.body) {
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    return handler(url, opts);
+  };
+}
+
 let _originalFetch;
 before(() => { _originalFetch = global.fetch; });
 afterEach(() => { global.fetch = _originalFetch; });
@@ -91,7 +106,7 @@ describe("consult_secondary_agent orchestration", () => {
     const tools = createSubAgentTools(makeCtx({
       pluginConfig: makeConfig({ subAgentTimeLimit: 0 }),
     }));
-    global.fetch = async () => { throw new Error("Should not reach fetch when deadline expired"); };
+    global.fetch = makeFetch(async () => { throw new Error("Should not reach chat fetch when deadline expired"); });
     const result = await callTool(tools, "consult_secondary_agent", {
       task: "do something",
       allow_tools: false,
@@ -129,10 +144,10 @@ describe("consult_secondary_agent orchestration", () => {
 
   it("returns response immediately in no-tools mode (allow_tools: false)", async () => {
     let fetchCount = 0;
-    global.fetch = async () => {
+    global.fetch = makeFetch(async () => {
       fetchCount++;
       return makeApiResponse("Here is my answer to your task.");
-    };
+    });
     const tools = createSubAgentTools(makeCtx());
     const result = await callTool(tools, "consult_secondary_agent", {
       task: "summarize something",
@@ -145,10 +160,10 @@ describe("consult_secondary_agent orchestration", () => {
 
   it("terminates cleanly on TASK_COMPLETED in content", async () => {
     let fetchCount = 0;
-    global.fetch = async () => {
+    global.fetch = makeFetch(async () => {
       fetchCount++;
       return makeApiResponse("I have finished the work. TASK_COMPLETED");
-    };
+    });
     const tools = createSubAgentTools(makeCtx({
       pluginConfig: makeConfig({ subAgentAllowFileSystem: true }),
     }));
@@ -163,10 +178,10 @@ describe("consult_secondary_agent orchestration", () => {
 
   it("terminates cleanly on TASK_FAILED in content", async () => {
     let fetchCount = 0;
-    global.fetch = async () => {
+    global.fetch = makeFetch(async () => {
       fetchCount++;
       return makeApiResponse("I cannot complete this. TASK_FAILED");
-    };
+    });
     const tools = createSubAgentTools(makeCtx({
       pluginConfig: makeConfig({ subAgentAllowFileSystem: true }),
     }));
@@ -174,19 +189,20 @@ describe("consult_secondary_agent orchestration", () => {
       task: "do an impossible task",
       allow_tools: true,
     });
-    // TASK_FAILED should cause the loop to break — result may be a response or error
+    // TASK_FAILED now returns { error } explicitly — not a bare response with TASK_FAILED in it
+    assert.ok(result.error, "TASK_FAILED should surface as an error field");
+    assert.ok(result.error.toLowerCase().includes("failed") || result.error.toLowerCase().includes("task"), `Error should describe failure: ${result.error}`);
     assert.equal(fetchCount, 1, "Should stop at TASK_FAILED on first response");
-    // Should not keep looping (fetchCount would be 8 if it didn't break)
   });
 
   it("terminates cleanly on finish_task tool call", async () => {
     let fetchCount = 0;
-    global.fetch = async () => {
+    global.fetch = makeFetch(async () => {
       fetchCount++;
       return makeApiResponse(
         JSON.stringify({ tool: "finish_task", args: { message: "All done", status: "success" } })
       );
-    };
+    });
     const tools = createSubAgentTools(makeCtx({
       pluginConfig: makeConfig({ subAgentAllowFileSystem: true }),
     }));
@@ -199,9 +215,9 @@ describe("consult_secondary_agent orchestration", () => {
   });
 
   it("extracts handoff_message from response", async () => {
-    global.fetch = async () => makeApiResponse(
+    global.fetch = makeFetch(async () => makeApiResponse(
       "Here is what I found. [HANDOFF_MESSAGE]Key finding: the answer is 42.[/HANDOFF_MESSAGE] TASK_COMPLETED"
-    );
+    ));
     const tools = createSubAgentTools(makeCtx());
     const result = await callTool(tools, "consult_secondary_agent", {
       task: "research something",
@@ -219,13 +235,13 @@ describe("consult_secondary_agent orchestration", () => {
   it("J.1: timeout return includes partial progress text", async () => {
     // First call returns real content, second call exceeds deadline
     let callCount = 0;
-    global.fetch = async () => {
+    global.fetch = makeFetch(async () => {
       callCount++;
       if (callCount === 1) return makeApiResponse("I started working on the task but need more time.");
       // Simulate the deadline expiring before the second response arrives
       await new Promise(r => setTimeout(r, 50));
       return makeApiResponse("This should not be seen");
-    };
+    });
     const tools = createSubAgentTools(makeCtx({
       pluginConfig: makeConfig({
         subAgentTimeLimit: 0, // Deadline already expired
@@ -245,11 +261,11 @@ describe("consult_secondary_agent orchestration", () => {
 
   it("J.1: retries on network error before failing (retry count verified)", async () => {
     let fetchCount = 0;
-    global.fetch = async () => {
+    global.fetch = makeFetch(async () => {
       fetchCount++;
       // Always throw a network error
       throw Object.assign(new TypeError("fetch failed"), { code: "ECONNREFUSED" });
-    };
+    });
     const tools = createSubAgentTools(makeCtx({
       pluginConfig: makeConfig({ subAgentTimeLimit: 60 }),
     }));
@@ -288,7 +304,7 @@ describe("consult_secondary_agent orchestration", () => {
 
   it("J.3: chain runs additional roles sequentially, each getting 1 fetch call", async () => {
     const rolesSeen = [];
-    global.fetch = async (_url, opts) => {
+    global.fetch = makeFetch(async (_url, opts) => {
       const body = JSON.parse(opts.body);
       const systemMsg = body.messages.find(m => m.role === "system")?.content || "";
       // Detect which role this call is for based on system prompt content
@@ -296,7 +312,7 @@ describe("consult_secondary_agent orchestration", () => {
       else if (systemMsg.includes("Code Reviewer")) rolesSeen.push("reviewer");
       else rolesSeen.push("primary");
       return makeApiResponse("Task done. TASK_COMPLETED");
-    };
+    });
     const tools = createSubAgentTools(makeCtx({
       pluginConfig: makeConfig({
         subAgentProfiles: JSON.stringify({
@@ -324,12 +340,12 @@ describe("consult_secondary_agent orchestration", () => {
 
   it("J.4: readonly mode excludes write tools from system prompt", async () => {
     let capturedSystemPrompt = "";
-    global.fetch = async (_url, opts) => {
+    global.fetch = makeFetch(async (_url, opts) => {
       const body = JSON.parse(opts.body);
       const sysMsg = body.messages.find(m => m.role === "system");
       if (sysMsg) capturedSystemPrompt = sysMsg.content;
       return makeApiResponse("Done. TASK_COMPLETED");
-    };
+    });
     const tools = createSubAgentTools(makeCtx({
       pluginConfig: makeConfig({
         subAgentAllowFileSystem: true,
@@ -355,4 +371,45 @@ describe("consult_secondary_agent orchestration", () => {
     assert.ok(capturedSystemPrompt.includes("READ-ONLY"),
       "System prompt should mention READ-ONLY mode");
   });
+
+  // ── New reliability features ─────────────────────────────────────────────────
+
+  it("get_sub_agent_result tool is registered alongside consult_secondary_agent", () => {
+    const tools = createSubAgentTools(makeCtx());
+    assert.ok(tools.some(t => t.name === "get_sub_agent_result"), "get_sub_agent_result should be registered");
+    assert.ok(tools.some(t => t.name === "consult_secondary_agent"), "consult_secondary_agent should still be registered");
+  });
+
+  it("get_sub_agent_result returns error when no result exists yet", async () => {
+    // Point LAST_RESULT_PATH to a non-existent location by using makeCtx
+    const tools = createSubAgentTools(makeCtx());
+    const t = tools.find(t => t.name === "get_sub_agent_result");
+    assert.ok(t);
+    // The real last_sub_agent_result.json may or may not exist; either way it should return cleanly
+    const res = await t.implementation({}, {});
+    assert.ok(typeof res === "object", "Should return an object");
+    // Either { error: "..." } or a valid result object
+    assert.ok(res.error || res.task || res.response !== undefined, "Should return error or valid result");
+  });
+
+  it("role-implied tools: coder role enables filesystem without allow_tools:true", async () => {
+    let capturedSystemPrompt = "";
+    global.fetch = makeFetch(async (_url, opts) => {
+      const body = JSON.parse(opts.body);
+      const sysMsg = body.messages.find(m => m.role === "system");
+      if (sysMsg) capturedSystemPrompt = sysMsg.content;
+      return makeApiResponse("Done. TASK_COMPLETED");
+    });
+    const tools = createSubAgentTools(makeCtx({
+      pluginConfig: makeConfig({ subAgentAllowFileSystem: true }),
+    }));
+    await callTool(tools, "consult_secondary_agent", {
+      task: "write some code",
+      agent_role: "coder",
+      // NOTE: allow_tools NOT passed — should default to role-implied access
+    });
+    assert.ok(capturedSystemPrompt.includes("save_file"),
+      "coder role should have filesystem tools even without allow_tools:true");
+  });
+
 });

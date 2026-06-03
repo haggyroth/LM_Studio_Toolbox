@@ -2,6 +2,7 @@ import { tool, type Tool } from "@lmstudio/sdk";
 import { z } from "zod";
 import { rm, writeFile, readdir, readFile, stat, mkdir, appendFile, rename as fsRename, unlink as fsUnlink } from "fs/promises";
 import { join, isAbsolute, dirname, relative } from "path";
+import { homedir } from "os";
 import type { ToolContext } from "./context";
 import { validatePath, extractLikelyFilePath, createSafeToolImplementation, ragLocalFiles, type ToolCtxLike } from "./helpers";
 import { rankFuzzyMatches } from "../fuzzySearch";
@@ -18,6 +19,24 @@ import { runPythonImpl, runJavascriptImpl } from "./codeTools";
 const pendingSubAgentMessages: string[] = [];
 let cancelSubAgentRequested = false;
 let subAgentRunning = false;
+
+// ── Role → implied tool categories ───────────────────────────────────────────
+// When the main model doesn't pass allow_tools:true, these defaults kick in
+// so that role-appropriate tools are available without extra parameters.
+// Individual tools are still gated by the user's subAgentAllow* config flags.
+const ROLE_TOOL_DEFAULTS: Record<string, { filesystem?: true; web?: true; code?: true }> = {
+  coder:        { filesystem: true, code: true },
+  reviewer:     { filesystem: true },
+  researcher:   { web: true },
+  debugger:     { filesystem: true, code: true },
+  tester:       { filesystem: true, code: true },
+  documenter:   { filesystem: true },
+  planner:      { filesystem: true },
+  data_analyst: { filesystem: true, code: true },
+  general:      { filesystem: true },
+};
+
+const LAST_RESULT_PATH = join(homedir(), ".lm-studio-toolbox", "last_sub_agent_result.json");
 
 const MAX_SUB_AGENT_OUTPUT_CHARS = 30_000;
 /** Timeout (ms) applied to all external web fetch calls inside the sub-agent. */
@@ -64,7 +83,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
 
   const consultTool = tool({
     name: "consult_secondary_agent",
-    description: "Delegate a task to a secondary agent. IMPORTANT: If the task is 'coding' or 'writing files', the secondary agent will AUTOMATICALLY CREATE AND SAVE the files to the disk. You do NOT need to save them yourself. The tool returns a list of generated files. Trust this list.",
+    description: "Delegate a task to a specialised sub-agent model. Choose the agent_role that best matches the work:\n  coder → write/edit/refactor code, saves files automatically\n  reviewer → audit code for bugs and security issues\n  researcher → gather and summarise information from the web\n  debugger → diagnose failing tests or runtime errors\n  tester → write and run tests for existing code\n  documenter → write or update docs, READMEs, changelogs\n  planner → decompose a complex task into an ordered plan (no code)\n  data_analyst → query databases and transform data\n  general → anything else\nFile-writing roles (coder, reviewer, debugger, tester, documenter, planner) have filesystem access enabled automatically. The sub-agent saves files to disk and returns their paths — do NOT repeat work already done. If [GENERATED_FILES] is in the response, those files exist on disk. Call get_sub_agent_result to re-read the last result without running a new session.",
     parameters: {
       task: z.string(),
       agent_role: z.string().optional().describe("Key from 'Sub-Agent Profiles' config (e.g., 'coder', 'reviewer', 'researcher', 'debugger', 'tester', 'documenter', 'planner', 'data_analyst'). Default: 'general'."),
@@ -94,6 +113,27 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         const allowWeb: boolean = ctx.pluginConfig.get("subAgentAllowWeb");
         const allowCode: boolean = ctx.pluginConfig.get("subAgentAllowCode");
         const allowSubAgentBrowserControl: boolean = ctx.pluginConfig.get("subAgentAllowBrowserControl");
+
+        // ── Pre-flight: verify endpoint is reachable ───────────────────────────
+        try {
+          const pingUrl = `${endpoint}/models`;
+          const pingRes = await fetch(pingUrl, { method: "GET", signal: AbortSignal.timeout(4_000) });
+          // 200 or 404 both mean the server is up; anything else (e.g. 503) is a problem
+          if (!pingRes.ok && pingRes.status !== 404) {
+            return { error: `Secondary agent endpoint returned HTTP ${pingRes.status}. Check that LM Studio is running and the model '${modelId}' is loaded at ${endpoint}.`, status: "failed" };
+          }
+        } catch (pingErr) {
+          const msg = pingErr instanceof Error ? pingErr.message : String(pingErr);
+          return { error: `Cannot reach secondary agent endpoint (${endpoint}): ${msg}. Verify LM Studio is running with a model loaded. If using LM Link, ensure the remote host is reachable.`, status: "failed" };
+        }
+
+        // ── Role-implied tool access ───────────────────────────────────────────
+        // Roles have sensible tool defaults so the main model doesn't need to
+        // pass allow_tools:true explicitly for every productive task.
+        const roleDefaults = ROLE_TOOL_DEFAULTS[agent_role] ?? {};
+        const effectiveAllowFileSystem = allowFileSystem && (allow_tools || roleDefaults.filesystem === true);
+        const effectiveAllowWeb        = allowWeb        && (allow_tools || roleDefaults.web       === true);
+        const effectiveAllowCode       = allowCode       && (allow_tools || roleDefaults.code      === true);
 
         // ── Agent loop ─────────────────────────────────────────────────────────
 
@@ -131,17 +171,21 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           } catch { /* invalid JSON in profiles */ }
 
           let toolsReminder = "";
-          const toolsEnabled = allow_tools || forceTools;
+          // forceTools is used by the auto-debug reviewer pass; effectiveAllow* incorporates role defaults
+          const useFS   = effectiveAllowFileSystem || forceTools;
+          const useWeb  = effectiveAllowWeb        || forceTools;
+          const useCode = effectiveAllowCode       || forceTools;
+          const toolsEnabled = useFS || useWeb || useCode;
           if (toolsEnabled) {
             const allowedTools: string[] = [];
-            if (allowFileSystem) {
+            if (useFS) {
               // J.4: readonly mode — only expose read tools, no writes or deletes
               allowedTools.push("read_file", "read_file_range", "list_directory", "search_in_file", "find_files", "fuzzy_find_local_files", "rag_local_files");
               if (!readonlyMode) allowedTools.push("save_file", "append_file", "replace_text_in_file", "delete_files_by_pattern");
             }
-            if (allowWeb) allowedTools.push("wikipedia_search", "web_search", "fetch_web_content", "rag_web_content");
-            if (allowWeb && allowSubAgentBrowserControl && ctx.allowBrowserControl) allowedTools.push("browser_session_open", "browser_session_control", "browser_session_close");
-            if (allowCode && !readonlyMode) allowedTools.push("run_python", "run_javascript");
+            if (useWeb) allowedTools.push("wikipedia_search", "web_search", "fetch_web_content", "rag_web_content");
+            if (useWeb && allowSubAgentBrowserControl && ctx.allowBrowserControl) allowedTools.push("browser_session_open", "browser_session_control", "browser_session_close");
+            if (useCode && !readonlyMode) allowedTools.push("run_python", "run_javascript");
 
             if (allowedTools.length > 0) {
               const readonlyNote = readonlyMode ? " (READ-ONLY mode: you may not save, modify, or delete files)" : "";
@@ -169,7 +213,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           let totalCompletionTokens = 0;
           const loopStartMs = Date.now();
 
-          const suggestedReadPath = allowFileSystem ? extractLikelyFilePath(`${taskPrompt}\n${contextData}`) : null;
+          const suggestedReadPath = useFS ? extractLikelyFilePath(`${taskPrompt}\n${contextData}`) : null;
 
           while (loops < loopLimit) {
             // ── N.16: inject pending steering messages ────────────────────────
@@ -309,7 +353,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                 } else {
                   try {
                     // File system tools
-                    if (allowFileSystem) {
+                    if (useFS) {
                       if (toolCall.tool === "read_file" && args.file_name) {
                         const fpath = validatePath(cwd, args.file_name);
                         const readContent = await readFile(fpath, "utf-8");
@@ -445,7 +489,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                     }
 
                     // Web tools
-                    if (allowWeb && !toolResult) {
+                    if (useWeb && !toolResult) {
                       if (toolCall.tool === "wikipedia_search") {
                         const lang = args.lang || "en";
                         const q = args.query || "";
@@ -516,7 +560,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                     }
 
                     // Code tools
-                    if (allowCode && !toolResult) {
+                    if (useCode && !toolResult) {
                       if (toolCall.tool === "run_python" && args.python) {
                         const res = await runPythonImpl({ python: args.python, cwd });
                         toolResult = res.stderr ? `Error: ${res.stderr}` : res.stdout;
@@ -527,7 +571,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                     }
 
                     // RAG web content (fetch + embed + score — available when web is allowed)
-                    if (allowWeb && !toolResult && toolCall.tool === "rag_web_content" && args.url && args.query) {
+                    if (useWeb && !toolResult && toolCall.tool === "rag_web_content" && args.url && args.query) {
                       if (!args.url.startsWith("http://") && !args.url.startsWith("https://")) {
                         toolResult = "Error: URL must start with http:// or https://";
                       } else if (!ctx.client) {
@@ -553,7 +597,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
               } else {
                 // ── No tool call ───────────────────────────────────────────────
                 const shouldAutoFallbackRead =
-                  toolsEnabled && allowFileSystem &&
+                  toolsEnabled && useFS &&
                   executedToolCallCount === 0 && noToolCallCount === 0 &&
                   typeof suggestedReadPath === "string" && suggestedReadPath.length > 0;
 
@@ -594,16 +638,22 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
                   break; // break then fall through to return below
                 }
 
-                if (content.includes("TASK_COMPLETED") || content.includes("TASK_FAILED") || shouldTreatAsFinalResponse || loops >= loopLimit - 1) break;
+                // TASK_FAILED is an explicit abort signal — surface it as an error so the main model
+                // gets a clear signal rather than a garbled response containing "TASK_FAILED".
+                if (content.includes("TASK_FAILED")) {
+                  const failReason = content.replace(/TASK_FAILED/g, "").trim().substring(0, 300) || "Sub-agent reported it could not complete the task.";
+                  return { error: `Sub-agent failed: ${failReason}`, filesModified, status: "failed" };
+                }
+                if (content.includes("TASK_COMPLETED") || shouldTreatAsFinalResponse || loops >= loopLimit - 1) break;
 
                 if (content.trim().length > 0) msgList.push({ role: "assistant", content });
 
                 let reminder = "SYSTEM NOTICE: You did not call a tool. If you are finished, output 'TASK_COMPLETED'. If you cannot complete the task, output 'TASK_FAILED'. If not, USE A TOOL now.";
                 if (toolsEnabled) {
-                  if (allowFileSystem && suggestedReadPath && noToolCallCount <= 3) {
+                  if (useFS && suggestedReadPath && noToolCallCount <= 3) {
                     const escapedPath = suggestedReadPath.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
                     reminder += `\nSuggested next step: {"tool":"read_file","args":{"file_name":"${escapedPath}"}}`;
-                  } else if (allowFileSystem && noToolCallCount <= 3) {
+                  } else if (useFS && noToolCallCount <= 3) {
                     reminder += `\nSuggested next step: {"tool":"list_directory","args":{}}`;
                   }
                 }
@@ -614,12 +664,13 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
               return { error: err.message, filesModified };
             }
 
-            // Prevent unbounded context growth
+            // Prevent unbounded context growth — keep system prompt + task message + recent turns
             if (msgList.length > 20) {
               const systemMsg = msgList[0];
-              const recentMsgs = msgList.slice(-18);
+              const taskMsg   = msgList[1]; // preserve the original task so the model doesn't forget its goal
+              const recentMsgs = msgList.slice(-16);
               msgList.length = 0;
-              msgList.push(systemMsg, ...recentMsgs);
+              msgList.push(systemMsg, taskMsg, ...recentMsgs);
             }
           }
 
@@ -630,7 +681,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           }
 
           // ── Auto-Save code blocks ──────────────────────────────────────────
-          if (autoSave && allowFileSystem && finalContent) {
+          if (autoSave && useFS && finalContent) {
             const codeBlockRegex = /```\s*(\w+)?\s*([\s\S]*?)```/g;
             const matches = Array.from(finalContent.matchAll(codeBlockRegex));
             const processedFiles = new Set<string>();
@@ -698,7 +749,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           }
 
           // ── Auto-Update Project Info ───────────────────────────────────────
-          if (filesModified.length > 0 && allowFileSystem) {
+          if (filesModified.length > 0 && useFS) {
             const infoPath = join(cwd, "toolbox_info.md");
             const logEntry = `\n- **[${new Date().toISOString()}]** Task: "${taskPrompt.substring(0, 50)}..." | Modified: ${filesModified.join(", ")}`;
             try {
@@ -715,7 +766,13 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
             ? `\n\n[Sub-agent: ${loops} turn(s), ~${Math.round(totalTokens / 1000)}k tokens (${Math.round(totalPromptTokens / 1000)}k prompt + ${Math.round(totalCompletionTokens / 1000)}k completion), ${elapsedSec}s elapsed]`
             : `\n\n[Sub-agent: ${loops} turn(s), ${elapsedSec}s elapsed]`;
 
-          return { response: (finalContent || "") + tokenFooter, filesModified, handoff_message: handoffMessage || undefined };
+          // If tools were available but no files were produced and response is empty, give the main model a clear signal
+          const hasOutput = (finalContent || "").trim().length > 0 || filesModified.length > 0;
+          const noOutputNote = !hasOutput && toolsEnabled
+            ? "\n\n[Sub-agent produced no output. If files were expected, check that subAgentAllowFileSystem is enabled in settings and the model supports JSON tool-call format.]"
+            : "";
+
+          return { response: (finalContent || "") + tokenFooter + noOutputNote, filesModified, handoff_message: handoffMessage || undefined, status: "completed" as const };
         };
 
         // ── Primary agent loop ───────────────────────────────────────────────
@@ -803,7 +860,19 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           finalResponse = finalResponse.replace(/```[\s\S]*?```/g, "\n[System: Code Block Hidden for Brevity. The code has been handled/saved by the sub-agent. Do NOT request it again. Proceed.]\n");
         }
 
-        return { response: finalResponse, generated_files: generatedFiles, handoff_message: handoffMessage };
+        // ── Persist last result so the main model can retrieve it later ──────────
+        const persistedResult = {
+          timestamp: new Date().toISOString(),
+          task: task.substring(0, 300),
+          agent_role,
+          status: "completed",
+          response: finalResponse.substring(0, 8000),
+          generated_files: generatedFiles,
+          handoff_message: handoffMessage,
+        };
+        writeFile(LAST_RESULT_PATH, JSON.stringify(persistedResult, null, 2), "utf-8").catch(() => {});
+
+        return { response: finalResponse, generated_files: generatedFiles, handoff_message: handoffMessage, status: "completed" };
       },
       ctx.enableSecondary,
       "consult_secondary_agent"
@@ -834,5 +903,21 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
     },
   });
 
-  return [consultTool, interruptTool];
+  // ── get_sub_agent_result ─────────────────────────────────────────────────
+
+  const getResultTool = tool({
+    name: "get_sub_agent_result",
+    description: "Retrieve the full response from the most recent sub-agent run without starting a new session. Use this if you need to re-read the sub-agent's output after your context was refreshed, or to check what files were produced.",
+    parameters: {},
+    implementation: async () => {
+      try {
+        const raw = await readFile(LAST_RESULT_PATH, "utf-8");
+        return JSON.parse(raw);
+      } catch {
+        return { error: "No previous sub-agent result found. Call consult_secondary_agent first." };
+      }
+    },
+  });
+
+  return [consultTool, interruptTool, getResultTool];
 }
