@@ -10,6 +10,7 @@
     "build": "tsc",
     "test": "node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js",
     "coverage": "node_modules/.bin/c8 --reporter=text --reporter=html node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js",
+    "mcp": "node dist/mcpServer.js",
     "lint": "eslint src/",
     "ci": "npm run typecheck && npm run lint && npm run build && npm run test"
   },
@@ -17,6 +18,7 @@
   "license": "ISC",
   "dependencies": {
     "@lmstudio/sdk": "1.4.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.4.6",
     "duck-duck-scrape": "^2.2.7",
     "html-to-text": "^9.0.5",
