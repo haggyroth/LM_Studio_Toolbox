@@ -13,6 +13,21 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.12.1] — 2026-06-03
+
+### Security
+- **SSRF protection for sub-agent web fetch** — `fetch_web_content` and `rag_web_content` inside the sub-agent loop now use `safeFetch()` instead of raw `fetch()`. This blocks requests to private IPs (RFC-1918), loopback, link-local addresses, and non-HTTP schemes — matching the protection that the main agent's web tools already had. The previous code allowed a confused or compromised sub-agent to reach internal network endpoints.
+
+### Fixed
+- **Empty tool output no longer replaced with "Tool not found"** — `toolResult` is now initialised as `undefined` instead of `""`. The fallthrough guard uses `=== undefined`. A tool that legitimately returns an empty string (e.g., a Python script that prints nothing, or `list_directory` on an empty folder) no longer triggers the error path.
+- **`run_python` / `run_javascript` now surface both stdout and stderr** — previously `res.stderr ? stderr : stdout` discarded stdout whenever stderr was non-empty (common with Python deprecation warnings). Both streams are now returned when both are non-empty: `stdout + "\n[stderr]: " + stderr`.
+- **`search_in_file` invalid regex no longer aborts the agent run** — a bad regex pattern (`new RegExp(pattern)` throwing `SyntaxError`) was caught by the outer loop catch and returned as a fatal error, terminating the run. Now regex construction has its own try/catch that sets `toolResult` to an error string and lets the loop continue. A ReDoS pre-check (same pattern as `delete_files_by_pattern`) is also applied.
+- **`web_search` now has a timeout** — DuckDuckGo requests had no `AbortSignal`. A slow response could block indefinitely and consume the entire remaining deadline. Wrapped in `Promise.race([search(...), timeout(remainingMs)])`.
+- **Stall detection now returns `status: "stalled"` with an actionable message** — previously the loop broke and fell through to the normal `status: "completed"` return, making it impossible for the main model to distinguish a completed task from a stalled one. Now returns `{ error: "...", status: "stalled" }` with a hint to split the task or add context.
+- **"Tool not found" error now lists available tools** — instead of a bare `"Error: Tool not found or not allowed."`, the message now includes the full list of allowed tools for the current session so the model knows what to call instead.
+
+---
+
 ## [3.12.0] — 2026-06-03
 
 ### Fixed
