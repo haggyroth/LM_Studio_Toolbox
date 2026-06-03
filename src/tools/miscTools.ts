@@ -379,6 +379,161 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
     },
   }));
 
+  // ── N.7: query_csv / transform_json ──────────────────────────────────────
+
+  /** RFC-4180 compliant CSV parser. Returns rows as string[][] (first row is headers). */
+  function parseCSV(raw: string): string[][] {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let field = "";
+    let inQuotes = false;
+    const norm = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    for (let i = 0; i < norm.length; i++) {
+      const ch = norm[i];
+      if (inQuotes) {
+        if (ch === '"') {
+          if (norm[i + 1] === '"') { field += '"'; i++; }
+          else inQuotes = false;
+        } else {
+          field += ch;
+        }
+      } else {
+        if (ch === '"') { inQuotes = true; }
+        else if (ch === ',') { row.push(field); field = ""; }
+        else if (ch === '\n') { row.push(field); field = ""; rows.push(row); row = []; }
+        else { field += ch; }
+      }
+    }
+    if (field !== "" || row.length > 0) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(c => c !== ""));
+  }
+
+  tools.push(tool({
+    name: "query_csv",
+    description: "Query and filter a CSV file without needing Python. Returns matching rows as a JSON array. Use columns to select specific fields, filter to narrow rows, and limit to cap results.",
+    parameters: {
+      file: z.string().describe("Path to the CSV file."),
+      filter: z.string().optional().describe("Row filter: 'column operator value'. Operators: =, !=, >, <, >=, <=, contains. E.g. 'age > 30' or 'status = active'."),
+      columns: z.array(z.string()).optional().describe("Column names to include. Omit for all columns."),
+      limit: z.number().int().min(1).max(10000).optional().default(100).describe("Maximum rows to return (default: 100)."),
+    },
+    implementation: async ({ file, filter, columns, limit = 100 }) => {
+      const fpath = validatePath(ctx.cwd, file, ctx.protectedPaths);
+      let raw: string;
+      try { raw = await readFile(fpath, "utf-8"); }
+      catch (e) { return { error: `Could not read file: ${e instanceof Error ? e.message : String(e)}` }; }
+
+      const allRows = parseCSV(raw);
+      if (allRows.length === 0) return { rows: [], total_rows: 0, columns: [] };
+      const headers = allRows[0];
+      const dataRows = allRows.slice(1);
+
+      let filterFn: ((row: Record<string, string>) => boolean) | null = null;
+      if (filter) {
+        const m = filter.trim().match(/^(.+?)\s*(>=|<=|!=|contains|>|<|=)\s*(.+)$/i);
+        if (!m) return { error: `Invalid filter: "${filter}". Format: 'column op value'. Ops: =, !=, >, <, >=, <=, contains.` };
+        const col = m[1].trim(), op = m[2].toLowerCase(), val = m[3].trim();
+        filterFn = (row: Record<string, string>) => {
+          const cell = (row[col] ?? "").toLowerCase();
+          const v = val.toLowerCase();
+          const nc = Number(row[col] ?? ""), nv = Number(val);
+          const numeric = !isNaN(nc) && !isNaN(nv) && val !== "";
+          if (op === "=") return cell === v;
+          if (op === "!=") return cell !== v;
+          if (op === "contains") return cell.includes(v);
+          if (op === ">") return numeric ? nc > nv : cell > v;
+          if (op === "<") return numeric ? nc < nv : cell < v;
+          if (op === ">=") return numeric ? nc >= nv : cell >= v;
+          if (op === "<=") return numeric ? nc <= nv : cell <= v;
+          return true;
+        };
+      }
+
+      const outputCols = (columns && columns.length > 0) ? columns.filter(c => headers.includes(c)) : headers;
+      const unknownCols = (columns ?? []).filter(c => !headers.includes(c));
+      const results: Record<string, string>[] = [];
+      let matched = 0;
+      for (const row of dataRows) {
+        const rowObj: Record<string, string> = {};
+        headers.forEach((h, i) => { rowObj[h] = row[i] ?? ""; });
+        if (filterFn && !filterFn(rowObj)) continue;
+        matched++;
+        if (results.length < limit) {
+          const projected: Record<string, string> = {};
+          outputCols.forEach(c => { projected[c] = rowObj[c] ?? ""; });
+          results.push(projected);
+        }
+      }
+
+      return {
+        rows: results,
+        columns: outputCols,
+        returned: results.length,
+        matched_rows: matched,
+        total_rows: dataRows.length,
+        ...(unknownCols.length > 0 ? { unknown_columns: unknownCols } : {}),
+      };
+    },
+  }));
+
+  tools.push(tool({
+    name: "transform_json",
+    description: "Extract values from a JSON file using a dot-path expression. Supports nested keys, array indexes, and [*] wildcards. Examples: 'users[0].name', 'items[*].price', 'config.server.port'.",
+    parameters: {
+      file: z.string().describe("Path to the JSON file."),
+      path_expression: z.string().describe("Dot-path expression. E.g. 'users[0].name', 'items[*].price', 'config.server.port'."),
+    },
+    implementation: async ({ file, path_expression }) => {
+      const fpath = validatePath(ctx.cwd, file, ctx.protectedPaths);
+      let raw: string;
+      try { raw = await readFile(fpath, "utf-8"); }
+      catch (e) { return { error: `Could not read file: ${e instanceof Error ? e.message : String(e)}` }; }
+
+      let data: unknown;
+      try { data = JSON.parse(raw); }
+      catch (e) { return { error: `Invalid JSON: ${e instanceof Error ? e.message : String(e)}` }; }
+
+      type Token = { type: "key"; name: string } | { type: "index"; value: number } | { type: "wildcard" };
+      const tokens: Token[] = [];
+      const re = /([^.\[\]]+)|\[(\*|\d+)\]/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(path_expression)) !== null) {
+        if (m[1] !== undefined) tokens.push({ type: "key", name: m[1] });
+        else if (m[2] === "*") tokens.push({ type: "wildcard" });
+        else tokens.push({ type: "index", value: parseInt(m[2], 10) });
+      }
+      if (tokens.length === 0) return { error: `Could not parse path expression: "${path_expression}"` };
+
+      function walk(node: unknown, idx: number): unknown[] {
+        if (idx >= tokens.length) return [node];
+        const tok = tokens[idx];
+        if (tok.type === "key") {
+          if (node !== null && typeof node === "object" && !Array.isArray(node)) {
+            const val = (node as Record<string, unknown>)[tok.name];
+            return val === undefined ? [] : walk(val, idx + 1);
+          }
+          return [];
+        }
+        if (tok.type === "index") {
+          if (Array.isArray(node)) {
+            const val = node[tok.value];
+            return val === undefined ? [] : walk(val, idx + 1);
+          }
+          return [];
+        }
+        // wildcard
+        if (Array.isArray(node)) return node.flatMap(item => walk(item, idx + 1));
+        return [];
+      }
+
+      const hasWildcard = tokens.some(t => t.type === "wildcard");
+      const results = walk(data, 0);
+      if (results.length === 0) return { result: null, path: path_expression, found: false };
+      if (!hasWildcard) return { result: results[0], path: path_expression, found: true };
+      return { result: results, path: path_expression, count: results.length, found: true };
+    },
+  }));
+
   // ── N.6: analyze_project ─────────────────────────────────────────────────
 
   tools.push(tool({

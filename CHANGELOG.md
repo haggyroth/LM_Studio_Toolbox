@@ -13,6 +13,15 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.4.0] — 2026-06-03
+
+### Added
+- **`query_csv`** — filter and project a CSV file without Python. Supports `=`, `!=`, `>`, `<`, `>=`, `<=`, and `contains` operators on any column; optional column projection; configurable row limit. Uses an inline RFC-4180 parser that handles quoted fields with embedded commas and escaped double-quotes (N.7)
+- **`transform_json`** — extract values from a JSON file with a dot-path expression. Supports nested key access (`config.server.port`), array indexing (`users[0].name`), and `[*]` wildcards that collect across all array elements (`users[*].tags[*]`). Returns `found: false` cleanly on missing paths instead of throwing (N.7)
+- 21 new integration tests in `tests/phaseN7.test.js` covering both tools
+
+---
+
 ## [3.3.0] — 2026-06-03
 
 ### Changed
