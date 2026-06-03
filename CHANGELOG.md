@@ -13,6 +13,16 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.5.0] — 2026-06-03
+
+### Added
+- **`find_symbol`** — locate where a TypeScript/JavaScript symbol is defined across the workspace using AST analysis. Supports functions, classes, interfaces, type aliases, variables, and enums. Optional `kind` filter narrows results. No false positives from comments or string literals (N.9)
+- **`find_usages`** — trace all reference sites for a symbol after locating its declaration. Returns `{ file, line, context }` per reference; optional `definition_file` resolves name ambiguity and speeds up lookup. Excludes `node_modules` automatically (N.9)
+- `ts-morph` moved from `devDependencies` to `dependencies` so AST tools are available at plugin runtime
+- 13 new integration tests in `tests/phaseN9.test.js` covering both tools
+
+---
+
 ## [3.4.0] — 2026-06-03
 
 ### Added
