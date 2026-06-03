@@ -331,4 +331,8 @@ Add an `interrupt_sub_agent(message)` tool that injects a correction into the su
 | N.9 | `find_symbol` and `find_usages` (AST) | ~3h | ✅ Done |
 | N.10 | `capture_screenshot` tool | ~2h | ✅ Done |
 | N.11 | Audit log | ~1h | ✅ Done |
-| N.12–16 | Big bets (custom plugins, auto-memory, rename_symbol, diff editing, sub-agent steering) | ~1 week | 📋 Planned |
+| N.12 | Custom tool plugins | ~1 day | 📋 Planned |
+| N.13 | Auto-capture memory | ~1 day | 📋 Planned |
+| N.14 | `rename_symbol` — workspace-wide atomic rename | ~1 day | ✅ Done |
+| N.15 | `edit_file_with_diff` — diff-based editing | ~1 day | ✅ Done |
+| N.16 | Sub-agent mid-task steering | ~1 day | 📋 Planned |

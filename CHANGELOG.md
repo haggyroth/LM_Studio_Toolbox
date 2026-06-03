@@ -13,6 +13,15 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.7.0] — 2026-06-03
+
+### Added
+- **`rename_symbol`** — workspace-wide atomic TypeScript/JavaScript rename using `ts-morph`. Locates the declaration, calls `node.rename(newName)` (updates all reference sites in memory), then writes every modified file atomically via a temp-and-rename approach. Returns the list of modified files. Validates that `new_name` is a legal identifier before touching anything (N.14)
+- **`edit_file_with_diff`** — apply a unified diff to a single file with a built-in validate-then-apply flow. Runs `git apply --check` first; if the patch won't apply cleanly the file is left untouched and a clear error + hint is returned. Auto-adds `--- a/` / `+++ b/` headers if omitted. Returns line count after edit (N.15)
+- 9 new integration tests in `tests/phaseN14N15.test.js` covering both tools
+
+---
+
 ## [3.6.0] — 2026-06-03
 
 ### Added
