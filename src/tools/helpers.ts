@@ -233,17 +233,24 @@ export function extractLikelyFilePath(text: string): string | null {
 
 // ─── Permission Guard ─────────────────────────────────────────────────────────
 
+// Minimal interface matching the SDK's ToolCallContext so we can type-check
+// status/warn calls without importing from @lmstudio/sdk here.
+export interface ToolCtxLike {
+  status: (text: string) => void;
+  warn: (text: string) => void;
+}
+
 export const createSafeToolImplementation = <TParameters, TReturn>(
-  originalImplementation: (params: TParameters) => Promise<TReturn>,
+  originalImplementation: (params: TParameters, toolCtx: ToolCtxLike) => Promise<TReturn>,
   isEnabled: boolean,
   toolName: string,
-) => async (params: TParameters): Promise<TReturn> => {
+) => async (params: TParameters, toolCtx: ToolCtxLike): Promise<TReturn> => {
   if (!isEnabled) {
     throw new Error(
       `Tool '${toolName}' is disabled in the plugin settings. Please ask the user to enable 'Allow ${toolName.replace(/_/g, " ")}' (or similar) in the settings.`
     );
   }
-  return originalImplementation(params);
+  return originalImplementation(params, toolCtx);
 };
 
 // ─── RAG / Embeddings ─────────────────────────────────────────────────────────
@@ -315,10 +322,12 @@ export async function ragLocalFiles(opts: {
   maxFiles?: number;
   minScore?: number;
   topK?: number;
+  /** Optional live-status callback — called at key progress points (M.1). */
+  onStatus?: (text: string) => void;
 }): Promise<RagLocalResult[]> {
   const {
     query, targetDir, filePattern = "", client, embeddingModelName,
-    maxFiles = 50, minScore = 0.4, topK = 10,
+    maxFiles = 50, minScore = 0.4, topK = 10, onStatus,
   } = opts;
 
   // 1. Discover candidate text files
@@ -333,7 +342,9 @@ export async function ragLocalFiles(opts: {
     .slice(0, maxFiles);
 
   // 2. Load the embedding model and embed the query
+  onStatus?.(`Loading embedding model "${embeddingModelName}"…`);
   const embeddingModel = await client.embedding.model(embeddingModelName);
+  onStatus?.(`Embedding query against ${candidates.length} candidate file(s)…`);
   const [queryEmbedding] = await embeddingModel.embed([query]);
 
   // 3. Separate cache-hits from files that need (re-)embedding
@@ -360,9 +371,13 @@ export async function ragLocalFiles(opts: {
   }));
 
   // 4. Batch-embed all cache-miss files
+  if (misses.length > 0) onStatus?.(`${hits.length} file(s) cached — embedding ${misses.length} new/changed file(s)…`);
+  let embeddedCount = 0;
   for (const { fullPath, name } of misses) {
     const cacheKey = `${embeddingModelName}::${fullPath}`;
     try {
+      embeddedCount++;
+      onStatus?.(`Embedding file ${embeddedCount}/${misses.length}: ${name}`);
       const content = await readFile(fullPath, "utf-8");
       const chunks = content.split(/\n\s*\n/).filter(c => c.trim().length > 20);
       if (chunks.length === 0) continue;
@@ -380,6 +395,7 @@ export async function ragLocalFiles(opts: {
   }
 
   // 5. Score all cached chunks against the query
+  onStatus?.(`Scoring ${hits.length} file(s) against query…`);
   const allChunks: RagLocalResult[] = [];
   for (const { fullPath, name } of hits) {
     const cacheKey = `${embeddingModelName}::${fullPath}`;

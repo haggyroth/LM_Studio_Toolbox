@@ -256,13 +256,15 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
         path: z.string().optional().describe("Sub-directory to limit search (default: current working directory)"),
         file_pattern: z.string().optional().describe("File pattern to include (e.g. '.ts', 'src/'). Default: all text files."),
       },
-      implementation: async ({ query, path = ".", file_pattern = "" }) => {
+      implementation: async ({ query, path = ".", file_pattern = "" }, toolCtx) => {
         try {
           if (!ctx.client) return { error: "LM Studio Client unavailable." };
           const targetDir = validatePath(ctx.cwd, path, ctx.protectedPaths);
+          toolCtx?.status?.("Scanning workspace files…");
           const results = await ragLocalFiles({
             query, targetDir, filePattern: file_pattern,
             client: ctx.client, embeddingModelName: ctx.embeddingModelName,
+            onStatus: (text) => toolCtx?.status?.(text),
           });
           return { query, results: results.map(r => ({ file: r.file, score: r.score.toFixed(3), content: r.content })) };
         } catch (error) {

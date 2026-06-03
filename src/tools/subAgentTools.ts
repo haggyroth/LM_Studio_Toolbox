@@ -3,7 +3,7 @@ import { z } from "zod";
 import { rm, writeFile, readdir, readFile, stat, mkdir, appendFile } from "fs/promises";
 import { join, isAbsolute, dirname, relative } from "path";
 import type { ToolContext } from "./context";
-import { validatePath, extractLikelyFilePath, createSafeToolImplementation, ragLocalFiles } from "./helpers";
+import { validatePath, extractLikelyFilePath, createSafeToolImplementation, ragLocalFiles, type ToolCtxLike } from "./helpers";
 import { rankFuzzyMatches } from "../fuzzySearch";
 import { extractHandoffMessage } from "../handoffMessage";
 import { parseSubAgentResponseMessage, type ParsedToolCall } from "../subAgentToolCallParser";
@@ -54,7 +54,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
       readonly: z.boolean().optional().describe("If true, the sub-agent cannot write, modify, or delete files. Use for research or review roles that should only read. Default: false."),
     },
     implementation: createSafeToolImplementation(
-      async ({ task, agent_role = "general", context = "", allow_tools = false, chain = [], readonly = false }) => {
+      async ({ task, agent_role = "general", context = "", allow_tools = false, chain = [], readonly = false }, toolCtx: ToolCtxLike) => {
         // Resolve config
         let endpoint: string = ctx.pluginConfig.get("secondaryAgentEndpoint");
         let modelId: string = ctx.pluginConfig.get("secondaryModelId");
@@ -163,7 +163,9 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
               };
             }
 
-            // J.1: progress heartbeat — visible in debug logs on every turn
+            // M.1: live status visible in LM Studio's UI sidebar on every turn
+            toolCtx?.status?.(`Sub-agent turn ${loops + 1}/${loopLimit} [${role}]${executedToolCallCount > 0 ? ` — ${executedToolCallCount} tool call(s) executed` : ""}`);
+            // J.1: progress heartbeat — also log to debug output
             console.log(`[Sub-agent: Turn ${loops + 1}/${loopLimit}, role: ${role}]`);
 
             // J.1: retry helper — retries up to MAX_ENDPOINT_RETRIES times on transient
