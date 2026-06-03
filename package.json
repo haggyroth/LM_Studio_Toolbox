@@ -19,7 +19,7 @@
   "dependencies": {
     "@lmstudio/sdk": "1.4.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "better-sqlite3": "^12.4.6",
+    "better-sqlite3": "12.10.0",
     "duck-duck-scrape": "^2.2.7",
     "html-to-text": "^9.0.5",
     "mammoth": "^1.11.0",

@@ -433,17 +433,19 @@ export function createFileTools(ctx: ToolContext): Tool[] {
   tools.push(tool({
     name: "search_directory",
     description: text`
-      Search an entire directory for a regex pattern (like grep).
-      Returns matching file paths and line numbers.
+      Search an entire directory for a regex pattern (like grep -n).
+      Returns structured matches: file path, line number, the matching line,
+      and optional context lines above/below each match.
     `,
     parameters: {
       directory_path: z.string().optional().describe("Directory to search. Defaults to workspace root."),
       pattern: z.string().describe("Regex pattern or string to search for"),
       use_regex: z.boolean().optional().default(false),
       case_sensitive: z.boolean().optional().default(false).describe("Whether the search is case-sensitive. Default: false."),
+      context_lines: z.number().int().min(0).max(10).optional().default(2).describe("Number of lines of context to include above and below each match (0–10, default 2)."),
       exclude: z.array(z.string()).optional().describe("Additional directory or filename patterns to skip (e.g. ['dist', 'coverage', '*.min.js']). node_modules and .git are always excluded."),
     },
-    implementation: async ({ directory_path, pattern, use_regex, case_sensitive = false, exclude = [] }, toolCtx) => {
+    implementation: async ({ directory_path, pattern, use_regex, case_sensitive = false, context_lines = 2, exclude = [] }, toolCtx) => {
       try {
         const targetDir = directory_path ? validatePath(ctx.cwd, directory_path, ctx.protectedPaths) : ctx.cwd;
         const flags = case_sensitive ? "g" : "gi";
@@ -454,7 +456,6 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         const shouldExclude = (name: string, fullPath: string): boolean => {
           if (ALWAYS_EXCLUDE.has(name) || name.startsWith(".")) return true;
           for (const pat of exclude) {
-            // Simple glob: treat patterns with * as suffix/prefix wildcards, else exact match
             if (pat.includes("*")) {
               const escaped = pat.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
               if (new RegExp(`^${escaped}$`, "i").test(name)) return true;
@@ -487,7 +488,8 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         await collectFiles(targetDir);
         toolCtx?.status?.(`Searching ${filePaths.length} file(s) for "${pattern}"…`);
 
-        const results: string[] = [];
+        type Match = { file: string; line: number; match: string; context: string[] };
+        const results: Match[] = [];
         let searchedCount = 0;
 
         // Process files in parallel with bounded concurrency
@@ -502,18 +504,40 @@ export function createFileTools(ctx: ToolContext): Tool[] {
               const content = await readFile(fullPath, "utf-8");
               if (content.includes("\0")) return; // skip binary
               const lines = content.split("\n");
+              const relPath = relative(ctx.cwd, fullPath);
+
+              // Track covered line ranges to deduplicate overlapping context windows
+              const coveredUpTo: number[] = []; // per-match end line (0-indexed)
+
               for (let j = 0; j < lines.length && results.length < 100; j++) {
-                if (lines[j].match(regex)) {
-                  results.push(`${relative(ctx.cwd, fullPath)}:${j + 1} => ${lines[j].trim()}`);
+                if (!lines[j].match(regex)) continue;
+
+                // Skip if this match line is already inside a prior match's context window
+                const alreadyCovered = coveredUpTo.some(endLine => j <= endLine);
+                if (alreadyCovered) continue;
+
+                const ctxStart = Math.max(0, j - context_lines);
+                const ctxEnd   = Math.min(lines.length - 1, j + context_lines);
+                coveredUpTo.push(ctxEnd);
+
+                const contextWindow: string[] = [];
+                for (let k = ctxStart; k <= ctxEnd; k++) {
+                  const prefix = k === j ? `>${k + 1}:` : ` ${k + 1}:`;
+                  contextWindow.push(`${prefix} ${lines[k]}`);
                 }
+
+                results.push({ file: relPath, line: j + 1, match: lines[j].trim(), context: contextWindow });
               }
               searchedCount++;
             } catch { /* skip unreadable files */ }
           }));
         }
 
-        if (results.length === 0) return { message: `No matches found. Searched ${searchedCount} files.` };
-        return { matches: results, message: `Found ${results.length} matches across ${searchedCount} files searched.` };
+        if (results.length === 0) return { matches: [], message: `No matches found. Searched ${searchedCount} files.` };
+        return {
+          matches: results,
+          message: `Found ${results.length} match(es) across ${searchedCount} file(s) searched.${results.length === 100 ? " (limit reached — narrow your pattern or directory)" : ""}`,
+        };
       } catch (e) {
         return { error: `Search failed: ${e instanceof Error ? e.message : String(e)}` };
       }
