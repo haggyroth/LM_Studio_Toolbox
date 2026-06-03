@@ -183,7 +183,7 @@ export const de: LocaleDict = {
     documentInjectionSuffix: (userQuery) =>
       `Bitte antworten Sie auf Basis der obigen Inhalte auf die Nutzeranfrage.\n\nNutzeranfrage: ${userQuery}`,
     delegationHintAlways:
-      "\n\n**SYSTEMAUFTRAG:** Sie MÜSSEN alle Informationsabrufe, Nachrichtenzusammenfassungen und **alle Coding-Aufgaben** (Erstellen, Bearbeiten, Refaktorieren) an den Sekundär-Agenten delegieren. Schreiben Sie KEINEN Code selbst. Verwenden Sie `consult_secondary_agent` mit `allow_tools: true`.\n\n**Vor-Delegations-Checkliste:**\n1. `list_directory` ausführen, um vorhandene Dateien zu sehen.\n2. `beledarian_info.md` oder `README.md` lesen, falls vorhanden.\n3. `consult_secondary_agent` mit dem Kontext aufrufen.",
+      "\n\n**SYSTEMAUFTRAG:** Sie MÜSSEN alle Informationsabrufe, Nachrichtenzusammenfassungen und **alle Coding-Aufgaben** (Erstellen, Bearbeiten, Refaktorieren) an den Sekundär-Agenten delegieren. Schreiben Sie KEINEN Code selbst. Verwenden Sie `consult_secondary_agent` mit `allow_tools: true`.\n\n**Vor-Delegations-Checkliste:**\n1. `list_directory` ausführen, um vorhandene Dateien zu sehen.\n2. `toolbox_info.md` oder `README.md` lesen, falls vorhanden.\n3. `consult_secondary_agent` mit dem Kontext aufrufen.",
     delegationHintWhenUseful:
       "\n\n**SYSTEMEMPFEHLUNG:** Für komplexe Aufgaben (z. B. 'App erstellen', 'Modul refaktorieren', 'recherchieren und zusammenfassen') **MÜSSEN** Sie mit `consult_secondary_agent` (mit `allow_tools: true`) an den Sekundär-Agenten delegieren.\n\n**So delegieren Sie:**\n1. Kontext sammeln (`list_directory`, `read_file`).\n2. `consult_secondary_agent` mit einer klaren Aufgabenbeschreibung aufrufen.\n",
     delegationHintWhenUsefulDebug:

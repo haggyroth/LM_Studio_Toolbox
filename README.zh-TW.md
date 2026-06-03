@@ -1,13 +1,13 @@
-# Beledarian's LM Studio Tools
+# LM Studio Toolbox
 
 [English](README.md) | [Deutsch](README.de.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/haggyroth/LM_Studio_Toolbox)
 
 本項目是 [LM Studio](https://lmstudio.ai/) 的一個插件，為大語言模型（LLM）提供了一系列豐富的工具。它作為 LLM 與您本地環境之間的橋梁，支持自主編程、研究和文件管理。
 
 > [!IMPORTANT]
-> **LM Studio 不支持自動更新。** 如果您遇到問題，請嘗試先手動更新：刪除當前版本並從 [插件網站](https://lmstudio.ai/beledarian/beledarians-lm-studio-tools) 重新下載。即使您的版本已過時，LM Studio 也可能會顯示「已安裝」提示。
+> **LM Studio 不支持自動更新。** 如果您遇到問題，請嘗試先手動更新：刪除當前版本並從 [插件網站](https://lmstudio.ai/beledarian/lm-studio-toolbox) 重新下載。即使您的版本已過時，LM Studio 也可能會顯示「已安裝」提示。
 
 ## 核心功能
 
@@ -19,9 +19,9 @@
 -   **批量處理**：`save_file` 支持一次性創建多個文件。
 -   **清理工具**：使用 `delete_files_by_pattern` 立即清除臨時文件。
 
-> **遇到問題了？** 歡迎在 [GitHub 上提交 Issue](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox/issues)。
+> **遇到問題了？** 歡迎在 [GitHub 上提交 Issue](https://github.com/haggyroth/LM_Studio_Toolbox/issues)。
 >
-> **覺得這個項目有幫助？** 請考慮在 [GitHub 上點個 ⭐](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox) 或 [參與貢獻！](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox/tree/main?tab=contributing-ov-file) 感謝您使用本工具箱。
+> **覺得這個項目有幫助？** 請考慮在 [GitHub 上點個 ⭐](https://github.com/haggyroth/LM_Studio_Toolbox) 或 [參與貢獻！](https://github.com/haggyroth/LM_Studio_Toolbox/tree/main?tab=contributing-ov-file) 感謝您使用本工具箱。
 
 
 ### 最新更新 (v1.3.2)
@@ -75,7 +75,7 @@
 -   **自動保存**：當子智能體生成代碼時，系統會 **自動識別並保存** 到磁盤。告別複製貼上！
 -   **自動偵錯**：(可選) 觸發「評審」智能體分析生成的代碼並自動修復錯誤。
 -   **結構化移交**：子智能體可以返回專用的 `handoff_message`，以便主智能體轉達研究發現。
--   **項目上下文**：智能體可以讀取 `beledarian_info.md` 以了解項目的歷史背景。
+-   **項目上下文**：智能體可以讀取 `toolbox_info.md` 以了解項目的歷史背景。
 
 ### 代碼執行
 
@@ -104,7 +104,7 @@
 
 您可以通過以下鏈接安裝插件：
 
-[https://lmstudio.ai/beledarian/beledarians-lm-studio-tools](https://lmstudio.ai/beledarian/beledarians-lm-studio-tools)
+[https://lmstudio.ai/beledarian/lm-studio-toolbox](https://lmstudio.ai/beledarian/lm-studio-toolbox)
 
 或者，您也可以手動安裝用於開發：
 
@@ -115,8 +115,8 @@
 1. **克隆倉庫**：
 
     ```bash
-    git clone https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox.git
-    cd Beledarians_LM_Studio_Toolbox
+    git clone https://github.com/haggyroth/LM_Studio_Toolbox.git
+    cd LM_Studio_Toolbox
     ```
 
 2. **安裝依賴**：
@@ -183,4 +183,4 @@
 
 ## 開發者指南
 
-架構詳情請參閱 [CODE_OVERVIEW.md](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox/blob/main/CODE_OVERVIEW.md)。
+架構詳情請參閱 [CODE_OVERVIEW.md](https://github.com/haggyroth/LM_Studio_Toolbox/blob/main/CODE_OVERVIEW.md)。

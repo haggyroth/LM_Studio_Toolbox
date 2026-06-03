@@ -1,5 +1,5 @@
 /**
- * i18n.ts — Central internationalization engine for the Beledarians LM Studio Toolbox plugin.
+ * i18n.ts — Central internationalization engine for the LM Studio Toolbox plugin.
  *
  * Implements the "Dual-Layer Language Mechanism":
  *   Layer 1 (Config UI)   — detected once at startup from OS locale; immutable per SDK constraints.
@@ -44,7 +44,7 @@ export const SUPPORTED_LOCALE_IDS = Object.keys(LOCALES) as ReadonlyArray<string
  */
 function readPersistedLocaleOverride(): string {
   try {
-    const statePath = join(os.homedir(), ".beledarians-llm-toolbox", ".plugin_state.json");
+    const statePath = join(os.homedir(), ".lm-studio-toolbox", ".plugin_state.json");
     const raw = readFileSync(statePath, "utf-8");
     const state = JSON.parse(raw);
     const override = state?.uiLanguageOverride;

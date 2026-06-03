@@ -8,7 +8,7 @@
  * Usage:
  *   node dist/mcpServer.js
  *
- * Config:  ~/.beledarians-llm-toolbox/mcp-config.json
+ * Config:  ~/.lm-studio-toolbox/mcp-config.json
  * Example: see mcp-config.example.json in the project root.
  *
  * Tools that require a live LM Studio instance (consult_secondary_agent,
@@ -44,7 +44,7 @@ import type { PluginState } from "./stateManager";
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const CONFIG_DIR  = join(homedir(), ".beledarians-llm-toolbox");
+const CONFIG_DIR  = join(homedir(), ".lm-studio-toolbox");
 const CONFIG_PATH = join(CONFIG_DIR, "mcp-config.json");
 
 interface McpConfig {

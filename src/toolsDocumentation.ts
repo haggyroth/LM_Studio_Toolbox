@@ -136,13 +136,13 @@ export const TOOLS_DOCUMENTATION = [
   '',
   '##  GitHub Management Protocol',
   'When managing GitHub repositories via `gh` o `git` Tools:',
-  '- **Identity:** Always state in the body of your PR that the PR was created or assisted by you (Beledarian_LM_Studio_Toolbox agent).',
+  '- **Identity:** Always state in the body of your PR that the PR was created or assisted by you (LM Studio Toolbox agent).',
   '- **Testing:** Add regression tests if useful and run them (`npm test`) to verify fixes before creating PRs.',
   '- **Auth Flow:** If `gh auth status` fails, ask the user if you should start an authentication flow.',
 ].join('\n');
 
 // Condensed system prompt for CPU-only / low-latency workflows.
-// See: https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox/issues/12
+// See: https://github.com/haggyroth/LM_Studio_Toolbox/issues/12
 export const TOOLS_DOCUMENTATION_LITE = [
   '# System: Local Assistant',
   '',

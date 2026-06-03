@@ -3,7 +3,7 @@ import { join, isAbsolute, resolve } from "path";
 import * as os from "os";
 
 const CONFIG_FILE_NAME = ".plugin_state.json";
-const DEFAULT_DIR = join(os.homedir(), ".beledarians-llm-toolbox", "workspace");
+const DEFAULT_DIR = join(os.homedir(), ".lm-studio-toolbox", "workspace");
 
 export interface PluginState {
   currentWorkingDirectory: string;
@@ -38,7 +38,7 @@ export async function getPersistedState(configuredWorkspacePath?: string): Promi
   const hasExplicitConfig = Boolean(configuredWorkspacePath?.trim());
 
   try {
-    const statePath = join(os.homedir(), ".beledarians-llm-toolbox", CONFIG_FILE_NAME);
+    const statePath = join(os.homedir(), ".lm-studio-toolbox", CONFIG_FILE_NAME);
     const content = await readFile(statePath, "utf-8");
     const state = JSON.parse(content);
     return {
@@ -66,8 +66,8 @@ export async function getPersistedState(configuredWorkspacePath?: string): Promi
 
 export async function savePersistedState(state: PluginState) {
   try {
-    const statePath = join(os.homedir(), ".beledarians-llm-toolbox", CONFIG_FILE_NAME);
-    const dir = join(os.homedir(), ".beledarians-llm-toolbox");
+    const statePath = join(os.homedir(), ".lm-studio-toolbox", CONFIG_FILE_NAME);
+    const dir = join(os.homedir(), ".lm-studio-toolbox");
     await mkdir(dir, { recursive: true });
     await writeFile(statePath, JSON.stringify(state, null, 2), "utf-8");
   } catch (error) {

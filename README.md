@@ -1,4 +1,4 @@
-# Beledarian's LM Studio Tools 
+# LM Studio Toolbox 
 
 [English](README.md) | [Deutsch](README.de.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
@@ -7,7 +7,7 @@
 This project is a plugin for [LM Studio](https://lmstudio.ai/) that provides a rich set of tools to a large language model. It acts as a bridge between the LLM and your local environment, enabling autonomous coding, research, and file management.
 
 > [!IMPORTANT]
-> **LM Studio does NOT support automatic updates.** If you encounter issues, please try manually updating first by removing the current version and re-downloading from the [plugin website](https://lmstudio.ai/beledarian/beledarians-lm-studio-tools). LM Studio may show an "already installed" tooltip, even if your version is outdated.
+> **This is an independent fork** of Beledarian's LM Studio Toolbox, maintained at [haggyroth/LM_Studio_Toolbox](https://github.com/haggyroth/LM_Studio_Toolbox). To install manually, clone this repo and run `lms dev` or `lms push` from the project directory.
 
 ## Key Features
 
@@ -82,7 +82,7 @@ This project is a plugin for [LM Studio](https://lmstudio.ai/) that provides a r
 ### v1.0.x Previous Updates
 - **Smart Context Injection:** `subagent_docs.md` is automatically loaded into the context
 - **Enhanced Reporting:** Fixed file path reporting in `consult_secondary_agent`
-- **Project Tracking:** Sub-agents enforce creation of `beledarian_info.md`
+- **Project Tracking:** Sub-agents enforce creation of `toolbox_info.md`
 - **Strict Naming:** Improved instructions for correct file extensions
 
 </details>
@@ -94,7 +94,7 @@ This project is a plugin for [LM Studio](https://lmstudio.ai/) that provides a r
 - **Auto-Save:** When the sub-agent generates code, the system **automatically detects and saves it** to your disk. No more copy-pasting!
 - **Auto-Debug:** (Optional) Triggers a "Reviewer" agent to analyze generated code and fix bugs automatically before returning the result.
 - **Structured Handoff:** Sub-agents can return a dedicated `handoff_message` for the main agent to relay findings/research.
-- **Project Context:** Agents can read `beledarian_info.md` to understand your project's history.
+- **Project Context:** Agents can read `toolbox_info.md` to understand your project's history.
 
 ### Code Execution
 
@@ -116,14 +116,18 @@ This project is a plugin for [LM Studio](https://lmstudio.ai/) that provides a r
 - [Node.js](https://nodejs.org/) (v18+)
 - [LM Studio](https://lmstudio.ai/) (v0.3.0+)
 
-> **💡 Tip:** Need persistent long-term memory for your agent?
-> Check out my other project: **[Local Memory MCP](https://github.com/Beledarian/mcp-local-memory)** – A privacy-first memory server with knowledge graph support.
-
 ## Installation
 
-The plugin can be installed using the following link:
+Clone the repository and use the LM Studio CLI:
 
-[https://lmstudio.ai/beledarian/beledarians-lm-studio-tools](https://lmstudio.ai/beledarian/beledarians-lm-studio-tools)
+```bash
+git clone https://github.com/haggyroth/LM_Studio_Toolbox.git
+cd LM_Studio_Toolbox
+npm install
+lms dev    # development mode with hot reload
+# or
+lms push   # install into LM Studio permanently
+```
 
 Alternatively, you can install it manually for development purposes.
 
@@ -134,8 +138,8 @@ If you want to contribute to the development of this plugin, you can follow thes
 1. **Clone the repository:**
 
     ```bash
-    git clone https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox.git
-    cd Beledarians_LM_Studio_Toolbox
+    git clone https://github.com/haggyroth/LM_Studio_Toolbox.git
+    cd LM_Studio_Toolbox
     ```
 
 2. **Install dependencies:**

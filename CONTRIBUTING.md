@@ -1,4 +1,4 @@
-# Contributing to Beledarians LM Studio Toolbox
+# Contributing to LM Studio Toolbox
 
 First off, thank you for considering contributing to this project! It's people like you that make the open-source community such an amazing place to learn, inspire, and create.
 
@@ -15,8 +15,8 @@ If you find a bug, please create an Issue on GitHub. Include:
 1.  **Fork the repository** on GitHub.
 2.  **Clone your fork** locally:
     ```bash
-    git clone [https://github.com/your-username/Beledarians_LM_Studio_Toolbox.git](https://github.com/your-username/Beledarians_LM_Studio_Toolbox.git)
-    cd Beledarians_LM_Studio_Toolbox
+    git clone [https://github.com/your-username/LM_Studio_Toolbox.git](https://github.com/your-username/LM_Studio_Toolbox.git)
+    cd LM_Studio_Toolbox
     ```
 3.  **Install dependencies** (ensure you have Node.js installed):
     ```bash
@@ -28,8 +28,8 @@ If you want to contribute to the development of this plugin, you can follow thes
 
 Clone the repository:
 ```bash
-git clone https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox.git
-cd Beledarians_LM_Studio_Toolbox
+git clone https://github.com/haggyroth/LM_Studio_Toolbox.git
+cd LM_Studio_Toolbox
 ```
 Install dependencies:
 

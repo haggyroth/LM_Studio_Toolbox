@@ -1,13 +1,13 @@
-# Beledarian's LM Studio Tools
+# LM Studio Toolbox
 
 [English](README.md) | [Deutsch](README.de.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md)
 
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/haggyroth/LM_Studio_Toolbox)
 
 Dieses Projekt ist ein Plugin für [LM Studio](https://lmstudio.ai/), das einem Large Language Model (LLM) eine umfangreiche Palette an Werkzeugen zur Verfügung stellt. Es fungiert als Brücke zwischen dem LLM und Ihrer lokalen Umgebung und ermöglicht autonomes Programmieren, Recherche und Dateiverwaltung.
 
 > [!IMPORTANT]
-> **LM Studio unterstützt KEINE automatischen Updates.** Wenn Sie Probleme haben, versuchen Sie bitte zuerst eine manuelle Aktualisierung, indem Sie die aktuelle Version entfernen und von der [Plugin-Website](https://lmstudio.ai/beledarian/beledarians-lm-studio-tools) neu herunterladen. LM Studio zeigt möglicherweise einen Tooltip "bereits installiert" an, selbst wenn Ihre Version veraltet ist.
+> **LM Studio unterstützt KEINE automatischen Updates.** Wenn Sie Probleme haben, versuchen Sie bitte zuerst eine manuelle Aktualisierung, indem Sie die aktuelle Version entfernen und von der [Plugin-Website](https://lmstudio.ai/beledarian/lm-studio-toolbox) neu herunterladen. LM Studio zeigt möglicherweise einen Tooltip "bereits installiert" an, selbst wenn Ihre Version veraltet ist.
 
 ## Hauptfunktionen
 
@@ -19,9 +19,9 @@ Dieses Projekt ist ein Plugin für [LM Studio](https://lmstudio.ai/), das einem 
 - **Stapelverarbeitung:** `save_file` unterstützt das Erstellen mehrerer Dateien in einem Durchgang.
 - **Bereinigung:** Verwenden Sie `delete_files_by_pattern`, um temporäre Dateien sofort zu löschen.
 
-> **Probleme festgestellt?** Zögern Sie nicht, diese auf [GitHub zu melden](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox/issues).
+> **Probleme festgestellt?** Zögern Sie nicht, diese auf [GitHub zu melden](https://github.com/haggyroth/LM_Studio_Toolbox/issues).
 >
-> **Finden Sie dieses Projekt hilfreich?** Erwägen Sie, ihm einen [⭐ auf GitHub zu geben](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox) oder [beizutragen!](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox/tree/main?tab=contributing-ov-file) Vielen Dank, dass Sie die Toolbox verwenden.
+> **Finden Sie dieses Projekt hilfreich?** Erwägen Sie, ihm einen [⭐ auf GitHub zu geben](https://github.com/haggyroth/LM_Studio_Toolbox) oder [beizutragen!](https://github.com/haggyroth/LM_Studio_Toolbox/tree/main?tab=contributing-ov-file) Vielen Dank, dass Sie die Toolbox verwenden.
 
 
 ### Aktuelle Updates (v1.3.2)
@@ -75,7 +75,7 @@ Dieses Projekt ist ein Plugin für [LM Studio](https://lmstudio.ai/), das einem 
 - **Auto-Save:** Wenn der Sub-Agent Code generiert, erkennt und speichert das System diesen **automatisch** auf Ihrer Festplatte. Kein Kopieren und Einfügen mehr!
 - **Auto-Debug:** (Optional) Aktiviert einen "Reviewer"-Agenten, der generierten Code analysiert und Fehler automatisch behebt.
 - **Strukturierte Übergabe:** Sub-Agenten können eine dedizierte `handoff_message` zurückgeben, um Ergebnisse an den Hauptagenten zu melden.
-- **Projektkontext:** Agenten können die Datei `beledarian_info.md` lesen, um die Historie Ihres Projekts zu verstehen.
+- **Projektkontext:** Agenten können die Datei `toolbox_info.md` lesen, um die Historie Ihres Projekts zu verstehen.
 
 ### Code-Ausführung
 
@@ -104,7 +104,7 @@ Dieses Projekt ist ein Plugin für [LM Studio](https://lmstudio.ai/), das einem 
 
 Das Plugin kann über den folgenden Link installiert werden:
 
-[https://lmstudio.ai/beledarian/beledarians-lm-studio-tools](https://lmstudio.ai/beledarian/beledarians-lm-studio-tools)
+[https://lmstudio.ai/beledarian/lm-studio-toolbox](https://lmstudio.ai/beledarian/lm-studio-toolbox)
 
 Alternativ können Sie es für Entwicklungszwecke manuell installieren.
 
@@ -115,8 +115,8 @@ Wenn Sie zur Entwicklung dieses Plugins beitragen möchten, folgen Sie diesen Sc
 1. **Repository klonen:**
 
     ```bash
-    git clone https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox.git
-    cd Beledarians_LM_Studio_Toolbox
+    git clone https://github.com/haggyroth/LM_Studio_Toolbox.git
+    cd LM_Studio_Toolbox
     ```
 
 2. **Abhängigkeiten installieren:**
@@ -183,4 +183,4 @@ Sie finden diese Einstellungen im Reiter "Plugins" in LM Studio:
 
 ## Entwickler-Leitfaden
 
-Siehe [CODE_OVERVIEW.md](https://github.com/Beledarian/Beledarians_LM_Studio_Toolbox/blob/main/CODE_OVERVIEW.md) für architektonische Details.
+Siehe [CODE_OVERVIEW.md](https://github.com/haggyroth/LM_Studio_Toolbox/blob/main/CODE_OVERVIEW.md) für architektonische Details.

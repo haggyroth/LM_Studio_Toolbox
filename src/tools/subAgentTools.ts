@@ -95,8 +95,8 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
           } catch { /* not required */ }
 
           try {
-            const projectInfo = await readFile(join(cwd, "beledarian_info.md"), "utf-8");
-            if (projectInfo.trim()) currentSystemPrompt += `\n\n## Current Project Info (beledarian_info.md)\n${projectInfo}`;
+            const projectInfo = await readFile(join(cwd, "toolbox_info.md"), "utf-8");
+            if (projectInfo.trim()) currentSystemPrompt += `\n\n## Current Project Info (toolbox_info.md)\n${projectInfo}`;
           } catch { /* not required */ }
 
           currentSystemPrompt += `\n\n## Current Workspace\nYour current working directory is:\n\n${cwd}\nAlways assume relative paths are from this directory.`;
@@ -665,7 +665,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
 
           // ── Auto-Update Project Info ───────────────────────────────────────
           if (filesModified.length > 0 && allowFileSystem) {
-            const infoPath = join(cwd, "beledarian_info.md");
+            const infoPath = join(cwd, "toolbox_info.md");
             const logEntry = `\n- **[${new Date().toISOString()}]** Task: "${taskPrompt.substring(0, 50)}..." | Modified: ${filesModified.join(", ")}`;
             try {
               await appendFile(infoPath, logEntry, "utf-8");
