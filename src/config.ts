@@ -172,6 +172,13 @@ export const pluginConfigSchematics = createConfigSchematics()
     displayName: c.subAgentAllowBrowserControl.displayName,
     subtitle: c.subAgentAllowBrowserControl.subtitle,
   }, false)
+  .field("subAgentLoopLimit", "numeric", {
+    int: true,
+    min: 1,
+    displayName: "Sub-Agent Turn Limit",
+    subtitle: "Maximum number of LLM turns per sub-agent run (default: 8). Increase for complex multi-step tasks; decrease for simple queries to save tokens.",
+    slider: { min: 1, max: 30, step: 1 },
+  }, 8)
   .field("subAgentTimeLimit", "numeric", {
     int: true,
     min: 30,
