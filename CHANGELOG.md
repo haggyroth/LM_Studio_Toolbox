@@ -13,6 +13,15 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.8.0] — 2026-06-03
+
+### Added
+- **Custom plugin system** — drop a `.js` file into `~/.lm-studio-toolbox/plugins/` and its exported tool definitions are registered alongside built-ins at startup. Plugins may export a plain object, an array, or a factory function called with `{ z }` so they don't need to resolve Zod themselves. Both raw Zod shapes `{ key: z.string() }` and wrapped `z.object({})` are accepted for parameters (ZodObject is unwrapped automatically). Bad plugin files are skipped with a console warning — they never prevent the rest of the toolbox from loading. No config flag required; the directory is scanned automatically (N.12)
+- New `src/pluginLoader.ts` module exporting `loadPlugins(pluginDir?)` for independent use and testing
+- 12 new integration tests in `tests/phaseN12.test.js`
+
+---
+
 ## [3.7.0] — 2026-06-03
 
 ### Added

@@ -58,6 +58,7 @@ import { createGithubTools } from "./tools/githubTools";
 import { createMiscTools } from "./tools/miscTools";
 import { createMemoryTools } from "./tools/memoryTools";
 import { createSubAgentTools } from "./tools/subAgentTools";
+import { loadPlugins } from "./pluginLoader";
 
 let isWorkspaceInitialized = false;
 
@@ -111,6 +112,8 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
   }
 
   // ── Assemble tools from all modules ─────────────────────────────────────────
+  // N.12: user plugins appended last so built-ins shadow any name conflicts
+  const pluginTools = await loadPlugins();
   const allTools: Tool[] = [
     ...createFileTools(ctx),
     ...createCodeTools(ctx),
@@ -121,6 +124,7 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     ...createMiscTools(ctx),
     ...createMemoryTools(ctx),
     ...createSubAgentTools(ctx),
+    ...pluginTools,
   ];
 
   // ── Phase L: disabledTools filter ───────────────────────────────────────────
