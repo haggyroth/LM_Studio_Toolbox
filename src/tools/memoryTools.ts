@@ -15,7 +15,7 @@ const DB_FILE = ".memories.db";
 const _dbCache = new Map<string, { db: any; migrationDone: boolean }>();
 
 /** Return the cached (or freshly opened) database for the given workspace. */
-async function getDb(cwd: string): Promise<{ db: any; migrationDone: boolean }> {
+export async function getDb(cwd: string): Promise<{ db: any; migrationDone: boolean }> {
   const dbPath = join(cwd, DB_FILE);
   let entry = _dbCache.get(dbPath);
   if (entry) return entry;
@@ -39,6 +39,21 @@ async function getDb(cwd: string): Promise<{ db: any; migrationDone: boolean }> 
   entry = { db, migrationDone: false };
   _dbCache.set(dbPath, entry);
   return entry;
+}
+
+/**
+ * N.13: Insert a single auto-captured memory fact into the workspace DB.
+ * Tags the row with "auto" so it's distinguishable from manually saved memories.
+ * Silently returns if the native binding is unavailable.
+ */
+export async function insertAutoMemory(cwd: string, fact: string): Promise<void> {
+  try {
+    const { db } = await getDb(cwd);
+    const now = new Date().toISOString();
+    db.prepare(
+      "INSERT INTO memories (fact, tags, created_at, updated_at) VALUES (?, ?, ?, ?)"
+    ).run(fact.trim(), "auto", now, now);
+  } catch { /* native binding unavailable or DB locked — skip silently */ }
 }
 
 /**

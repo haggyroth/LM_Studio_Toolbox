@@ -270,6 +270,29 @@ export async function promptPreprocessor(ctl: PromptPreprocessorController, user
 
   // Always increment message count and flush all state mutations in a single write.
   state.messageCount++;
+
+  // ── N.13: Auto-capture memory ─────────────────────────────────────────────
+  // Maintain a rolling buffer of recent user messages (used by the extractor).
+  const rawUserText = userPrompt.substring(0, 1000); // cap each entry
+  const msgBuf = state.recentUserMessages ?? [];
+  msgBuf.push(rawUserText);
+  if (msgBuf.length > 15) msgBuf.shift();
+  state.recentUserMessages = msgBuf;
+
+  const memoryAutoCapture: boolean = pluginConfig.get("memoryAutoCapture") ?? false;
+  const memoryAutoCaptureInterval: number = pluginConfig.get("memoryAutoCaptureInterval") ?? 5;
+  const memoryEnabled: boolean = pluginConfig.get("enableMemory") ?? false;
+
+  if (memoryAutoCapture && memoryEnabled && state.messageCount % memoryAutoCaptureInterval === 0) {
+    const endpoint: string = pluginConfig.get("secondaryAgentEndpoint") ?? "http://localhost:1234/v1";
+    const modelId: string = pluginConfig.get("secondaryModelId") ?? "local-model";
+    const cwd = state.currentWorkingDirectory;
+    // Fire-and-forget: never block the user's turn on capture
+    runAutoMemoryCapture(endpoint, modelId, cwd, [...msgBuf]).catch(e => {
+      ctl.debug("[auto-memory] Capture failed silently:", String(e));
+    });
+  }
+
   try {
     await savePersistedState(state);
   } catch (e) {
@@ -281,6 +304,60 @@ export async function promptPreprocessor(ctl: PromptPreprocessorController, user
     return currentContent;
   }
   return userMessage;
+}
+
+// ── N.13: Auto-capture memory extractor ──────────────────────────────────────
+
+/**
+ * Call the secondary endpoint to extract memorable facts from recent messages,
+ * then persist them into the workspace memory DB.
+ * Runs fire-and-forget — any error is caught by the caller.
+ */
+async function runAutoMemoryCapture(
+  endpoint: string,
+  modelId: string,
+  cwd: string,
+  recentMessages: string[],
+): Promise<void> {
+  if (recentMessages.length === 0) return;
+
+  const context = recentMessages.join("\n\n---\n\n").substring(0, 4000);
+  const prompt =
+    "You are a memory extraction assistant. Extract 3-7 specific, useful facts from " +
+    "these recent conversation messages that would help an AI assistant in future sessions. " +
+    "Focus on: user preferences, project details, technical decisions, constraints, and " +
+    "recurring patterns. Skip one-off or trivial details.\n\n" +
+    "Format: one fact per line, starting with \"- \".\n\n" +
+    "Recent messages:\n" + context + "\n\nFacts to remember:";
+
+  const res = await fetch(`${endpoint}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: modelId,
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2,
+      stream: false,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  if (!res.ok) return;
+
+  const data = await res.json();
+  const responseText: string = data?.choices?.[0]?.message?.content ?? "";
+
+  const facts = responseText
+    .split("\n")
+    .filter((l: string) => l.trim().startsWith("- "))
+    .map((l: string) => l.replace(/^-\s*/, "").trim())
+    .filter((f: string) => f.length >= 10 && f.length <= 400);
+
+  if (facts.length === 0) return;
+
+  const { insertAutoMemory } = await import("./tools/memoryTools");
+  for (const fact of facts) {
+    await insertAutoMemory(cwd, fact);
+  }
 }
 
 async function prepareRetrievalResultsContextInjection(

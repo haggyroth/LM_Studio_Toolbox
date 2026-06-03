@@ -13,6 +13,17 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.10.0] — 2026-06-03
+
+### Added
+- **Auto-capture memory** — when `memoryAutoCapture` is enabled (default: off) and `enableMemory` is on, key facts are automatically distilled from the conversation every N turns (controlled by `memoryAutoCaptureInterval`, default: 5) and saved to the memory database. Uses the configured Secondary Agent endpoint for extraction. The extraction prompt asks for 3–7 specific, useful facts; results are tagged `"auto"` in the DB to distinguish them from manually saved memories. Runs fire-and-forget and never blocks the user's turn (N.13)
+- Two new config fields: `memoryAutoCapture` (boolean, default off) and `memoryAutoCaptureInterval` (integer slider 1–20, default 5)
+- `recentUserMessages` rolling buffer added to `PluginState` (capped at 15 entries) — supplies context to the extractor without requiring full history access
+- `getDb` exported from `memoryTools.ts`; new `insertAutoMemory(cwd, fact)` exported helper
+- 6 tests in `tests/phaseN13.test.js` (3 pass unconditionally; 3 require the native SQLite binding)
+
+---
+
 ## [3.9.0] — 2026-06-03
 
 ### Added
