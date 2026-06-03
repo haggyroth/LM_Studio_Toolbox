@@ -847,7 +847,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         } finally {
           subAgentRunning = false;
         }
-        if (primaryResult.error) return { error: primaryResult.error };
+        if (primaryResult.error) return { error: primaryResult.error, status: primaryResult.status };
 
         let finalResponse = primaryResult.response || "";
         let handoffMessage = primaryResult.handoff_message;

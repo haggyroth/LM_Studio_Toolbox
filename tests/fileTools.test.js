@@ -358,4 +358,77 @@ describe("fileTools integration", () => {
       await assert.rejects(fs.access(path.join(tmpDir, "deleteme.txt")));
     });
   });
+
+  // ── search_directory ────────────────────────────────────────────────────────
+
+  describe("search_directory", () => {
+    before(async () => {
+      await fs.writeFile(path.join(tmpDir, "alpha.ts"), "export function foo() {\n  return 42;\n}\n", "utf-8");
+      await fs.writeFile(path.join(tmpDir, "beta.ts"),  "import { foo } from './alpha';\nconst x = foo();\n", "utf-8");
+      await fs.writeFile(path.join(tmpDir, "notes.md"), "foo is a helper function\nbar is another one\n", "utf-8");
+    });
+
+    it("returns structured {file, line, match, context} objects", async () => {
+      const result = await callTool(tools, "search_directory", { pattern: "foo" });
+      assert.ok(Array.isArray(result.matches), "matches should be an array");
+      assert.ok(result.matches.length > 0, "should find at least one match");
+      const m = result.matches[0];
+      assert.ok(typeof m.file === "string", "match.file should be a string");
+      assert.ok(typeof m.line === "number", "match.line should be a number");
+      assert.ok(typeof m.match === "string", "match.match should be a string");
+      assert.ok(Array.isArray(m.context), "match.context should be an array");
+    });
+
+    it("context lines include the match line prefixed with '>'", async () => {
+      const result = await callTool(tools, "search_directory", { pattern: "return 42", context_lines: 1 });
+      assert.ok(result.matches.length > 0);
+      const ctx = result.matches[0].context;
+      const matchLine = ctx.find(l => l.startsWith(">"));
+      assert.ok(matchLine, "match line should be prefixed with '>'");
+      assert.ok(matchLine.includes("return 42"), "match line should contain the matched text");
+    });
+
+    it("context_lines: 0 returns only the match line", async () => {
+      const result = await callTool(tools, "search_directory", { pattern: "return 42", context_lines: 0 });
+      assert.ok(result.matches.length > 0);
+      assert.equal(result.matches[0].context.length, 1, "zero context_lines means only the match line");
+    });
+
+    it("overlapping matches within context window are deduplicated", async () => {
+      // Write a file where two matches are within 2 lines of each other
+      await fs.writeFile(path.join(tmpDir, "dense.ts"), "foo()\nfoo()\nfoo()\n", "utf-8");
+      const result = await callTool(tools, "search_directory", {
+        pattern: "foo",
+        context_lines: 2,
+        directory_path: ".",
+      });
+      const denseMatches = result.matches.filter(m => m.file === "dense.ts");
+      // With context_lines:2, all three lines fall within the first match's window,
+      // so only one result should be emitted for dense.ts.
+      assert.equal(denseMatches.length, 1, "overlapping matches should be deduplicated");
+    });
+
+    it("line numbers are 1-indexed and correct", async () => {
+      const result = await callTool(tools, "search_directory", {
+        pattern: "import",
+        case_sensitive: true,
+      });
+      const betaMatch = result.matches.find(m => m.file === "beta.ts");
+      assert.ok(betaMatch, "should find import in beta.ts");
+      assert.equal(betaMatch.line, 1, "import is on line 1 of beta.ts");
+    });
+
+    it("returns empty matches array (not error) when nothing matches", async () => {
+      const result = await callTool(tools, "search_directory", { pattern: "ZZZNOMATCH" });
+      assert.ok(!result.error, "should not error on no-match");
+      assert.deepEqual(result.matches, []);
+    });
+
+    it("searches multiple file types", async () => {
+      const result = await callTool(tools, "search_directory", { pattern: "foo" });
+      const files = result.matches.map(m => m.file);
+      assert.ok(files.some(f => f.endsWith(".ts")), "should match .ts files");
+      assert.ok(files.some(f => f.endsWith(".md")), "should match .md files");
+    });
+  });
 });
