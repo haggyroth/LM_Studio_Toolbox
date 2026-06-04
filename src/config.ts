@@ -210,6 +210,10 @@ export const pluginConfigSchematics = createConfigSchematics()
     displayName: c.showFullCodeOutput.displayName,
     subtitle: c.showFullCodeOutput.subtitle,
   }, false)
+  .field("subAgentShowExecutionLog", "boolean", {
+    displayName: "Sub-Agent: Show Execution Log",
+    subtitle: "Append a compact [Execution log] to every sub-agent response showing which tools were called and their outcomes. Error turns always include detail. Disable to save context tokens on long runs. Default: on.",
+  }, true)
   .field("simpleSystemPrompt", "boolean", {
     displayName: c.simpleSystemPrompt.displayName,
     subtitle: c.simpleSystemPrompt.subtitle,

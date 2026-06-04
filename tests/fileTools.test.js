@@ -430,5 +430,26 @@ describe("fileTools integration", () => {
       assert.ok(files.some(f => f.endsWith(".ts")), "should match .ts files");
       assert.ok(files.some(f => f.endsWith(".md")), "should match .md files");
     });
+
+    it("max_matches caps results and message reports the limit", async () => {
+      // Write a file with many matches
+      const manyLines = Array.from({ length: 20 }, (_, i) => `foo line ${i}`).join("\n");
+      await fs.writeFile(path.join(tmpDir, "many.ts"), manyLines, "utf-8");
+
+      const result = await callTool(tools, "search_directory", {
+        pattern: "foo",
+        max_matches: 3,
+        context_lines: 0,
+      });
+
+      assert.ok(result.matches.length <= 3, `Should return at most 3 matches, got ${result.matches.length}`);
+      assert.ok(result.message.includes("limit of 3"), `Message should mention the limit: ${result.message}`);
+    });
+
+    it("max_matches defaults to 100 when not specified", async () => {
+      // Verify the default cap is still in effect (no regressions)
+      const result = await callTool(tools, "search_directory", { pattern: "foo" });
+      assert.ok(result.matches.length <= 100, "Default max_matches should cap at 100");
+    });
   });
 });

@@ -41,7 +41,7 @@ export const TOOLS_DOCUMENTATION = [
   '- `append_file(file_name, content)`: Appends content to the end of a file (creates if missing).',
   '- `replace_text_in_file(file_name, old_string, new_string)`: Replaces specific text in a file. *Warning: Fails if whitespace/indentation doesn\'t match exactly.*',
   '- `search_in_file(file_name, pattern, case_sensitive?, use_regex?)`: Searches for a substring or regex within a single file and returns matching line numbers.',
-  '- `search_directory(pattern, directory_path?, context_lines?, use_regex?, case_sensitive?, exclude?)`: Grep-style search across all files in a directory tree. Returns structured matches: `{file, line, match, context[]}` where `context` is the match line plus surrounding lines prefixed with `>` for the match. Overlapping matches are deduplicated. Prefer this over `search_in_file` when searching across multiple files.',
+  '- `search_directory(pattern, directory_path?, context_lines?, max_matches?, use_regex?, case_sensitive?, exclude?)`: Grep-style search across all files in a directory tree. Returns structured matches: `{file, line, match, context[]}` where `context` is the match line plus surrounding lines prefixed with `>` for the match. Overlapping matches are deduplicated. Use `max_matches` (default 100, max 500) to control result count. Prefer this over `search_in_file` when searching across multiple files.',
   '- `make_directory(directory_name)`: Creates a new directory path.',
   '- `move_file(source, destination)`: Moves or renames a file/directory.',
   '- `copy_file(source, destination)`: Copies a file.',

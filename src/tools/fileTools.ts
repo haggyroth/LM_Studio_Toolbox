@@ -443,9 +443,10 @@ export function createFileTools(ctx: ToolContext): Tool[] {
       use_regex: z.boolean().optional().default(false),
       case_sensitive: z.boolean().optional().default(false).describe("Whether the search is case-sensitive. Default: false."),
       context_lines: z.number().int().min(0).max(10).optional().default(2).describe("Number of lines of context to include above and below each match (0–10, default 2)."),
+      max_matches: z.number().int().min(1).max(500).optional().default(100).describe("Maximum number of matches to return (1–500, default 100). Lower this to stay within context limits on large repos."),
       exclude: z.array(z.string()).optional().describe("Additional directory or filename patterns to skip (e.g. ['dist', 'coverage', '*.min.js']). node_modules and .git are always excluded."),
     },
-    implementation: async ({ directory_path, pattern, use_regex, case_sensitive = false, context_lines = 2, exclude = [] }, toolCtx) => {
+    implementation: async ({ directory_path, pattern, use_regex, case_sensitive = false, context_lines = 2, max_matches = 100, exclude = [] }, toolCtx) => {
       try {
         const targetDir = directory_path ? validatePath(ctx.cwd, directory_path, ctx.protectedPaths) : ctx.cwd;
         const flags = case_sensitive ? "g" : "gi";
@@ -493,13 +494,13 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         let searchedCount = 0;
 
         // Process files in parallel with bounded concurrency
-        for (let i = 0; i < filePaths.length && results.length < 100; i += CONCURRENCY) {
+        for (let i = 0; i < filePaths.length && results.length < max_matches; i += CONCURRENCY) {
           const batch = filePaths.slice(i, i + CONCURRENCY);
           if (i > 0 && i % (CONCURRENCY * 4) === 0) {
             toolCtx?.status?.(`Searched ${searchedCount}/${filePaths.length} files — ${results.length} match(es) so far…`);
           }
           await Promise.all(batch.map(async (fullPath) => {
-            if (results.length >= 100) return;
+            if (results.length >= max_matches) return;
             try {
               const content = await readFile(fullPath, "utf-8");
               if (content.includes("\0")) return; // skip binary
@@ -509,7 +510,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
               // Track covered line ranges to deduplicate overlapping context windows
               const coveredUpTo: number[] = []; // per-match end line (0-indexed)
 
-              for (let j = 0; j < lines.length && results.length < 100; j++) {
+              for (let j = 0; j < lines.length && results.length < max_matches; j++) {
                 if (!lines[j].match(regex)) continue;
 
                 // Skip if this match line is already inside a prior match's context window
@@ -536,7 +537,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
         if (results.length === 0) return { matches: [], message: `No matches found. Searched ${searchedCount} files.` };
         return {
           matches: results,
-          message: `Found ${results.length} match(es) across ${searchedCount} file(s) searched.${results.length === 100 ? " (limit reached — narrow your pattern or directory)" : ""}`,
+          message: `Found ${results.length} match(es) across ${searchedCount} file(s) searched.${results.length >= max_matches ? ` (limit of ${max_matches} reached — use max_matches or a narrower pattern/directory to get more)` : ""}`,
         };
       } catch (e) {
         return { error: `Search failed: ${e instanceof Error ? e.message : String(e)}` };
