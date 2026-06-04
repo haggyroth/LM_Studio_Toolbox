@@ -1,12 +1,11 @@
 {
   "name": "lm-studio-toolbox",
-  "version": "3.13.4",
+  "version": "3.14.1",
   "description": "",
   "main": "index.js",
   "scripts": {
     "dev": "lms dev",
-    "push": "npm run rebuild:lmstudio && lms push",
-    "rebuild:lmstudio": "npm_config_runtime=node npm_config_target=25.5.0 npm_config_arch=arm64 npm rebuild better-sqlite3 || true",
+    "push": "lms push",
     "rebuild:dev": "npm rebuild better-sqlite3",
     "typecheck": "tsc --noEmit",
     "build": "tsc",

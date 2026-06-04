@@ -242,7 +242,13 @@ export function createMiscTools(ctx: ToolContext): Tool[] {
           const results = stmt.all();
           return { results };
         } catch (e) {
-          return { error: `Database query failed: ${e instanceof Error ? e.message : String(e)}` };
+          const msg = e instanceof Error ? e.message : String(e);
+          // macOS code-signing: LM Studio's sandboxed runtime rejects unsigned
+          // native addons. Surface a clear message rather than the raw dlopen dump.
+          if (msg.includes("Team IDs") || msg.includes("code signature") || msg.includes("dlopen")) {
+            return { error: "query_database requires the better-sqlite3 native addon, which cannot be loaded inside LM Studio's sandboxed runtime due to macOS code-signing restrictions. Use this tool from a standalone Node environment instead." };
+          }
+          return { error: `Database query failed: ${msg}` };
         } finally {
           db?.close();
         }
