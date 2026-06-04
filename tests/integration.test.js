@@ -332,6 +332,26 @@ describe("realistic multi-turn pipeline (no live endpoint needed)", () => {
     assert.ok(!result.error);
     assert.ok(!result.response.includes("[Execution log:"), "No log should appear when no tools were called");
   });
+
+  it("subAgentShowExecutionLog:false suppresses log text but turn_log field is still populated", async () => {
+    const quietTools = createSubAgentTools(makeCtx(tmpDir, {
+      pluginConfig: makeConfig({ subAgentShowExecutionLog: false }),
+    }));
+    global.fetch = makeScriptedFetch([
+      JSON.stringify({ tool: "list_directory", args: {} }),
+      "Done. TASK_COMPLETED",
+    ]);
+
+    const result = await callTool(quietTools, "consult_secondary_agent", {
+      task: "List the directory",
+      agent_role: "general",
+    });
+
+    assert.ok(!result.error);
+    assert.ok(!result.response.includes("[Execution log:"), "Log text should be suppressed when setting is off");
+    assert.ok(Array.isArray(result.turn_log), "turn_log field should still be populated for programmatic access");
+    assert.ok(result.turn_log.length > 0, "turn_log should have entries even when log text is suppressed");
+  });
 });
 
 // ── Suite 2: live LM Studio smoke test ───────────────────────────────────────

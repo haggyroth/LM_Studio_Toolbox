@@ -114,6 +114,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         const subAgentDebugLogging: boolean = ctx.pluginConfig.get("enableSubAgentDebugLogging");
         const autoSave: boolean = ctx.pluginConfig.get("subAgentAutoSave");
         const showFullCode: boolean = ctx.pluginConfig.get("showFullCodeOutput");
+        const showExecutionLog: boolean = ctx.pluginConfig.get("subAgentShowExecutionLog") !== false; // default on
         const allowFileSystem: boolean = ctx.pluginConfig.get("subAgentAllowFileSystem");
         const allowWeb: boolean = ctx.pluginConfig.get("subAgentAllowWeb");
         const allowCode: boolean = ctx.pluginConfig.get("subAgentAllowCode");
@@ -941,9 +942,10 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
             : "";
 
           // H: format the execution log — brief for success turns, auto-expand on errors,
-          // full detail in debug mode.
+          // full detail in debug mode. Gated by subAgentShowExecutionLog (default on).
+          // turn_log is always populated on the return value regardless of this setting.
           let execLog = "";
-          if (turnLog.length > 0) {
+          if (showExecutionLog && turnLog.length > 0) {
             const lines = turnLog.map(e => {
               const keyStr = e.keyArg ? `(${e.keyArg})` : "";
               const base = `  ${e.turn}. ${e.tool}${keyStr} → ${e.brief}`;
