@@ -971,6 +971,8 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         let finalResponse = primaryResult.response || "";
         let handoffMessage = primaryResult.handoff_message;
         const generatedFiles = [...(primaryResult.filesModified ?? [])];
+        // Accumulate turn logs from primary + any chain roles for the top-level field
+        const allTurnLog = [...(primaryResult.turnLog ?? [])];
 
         // ── J.3 Role chaining ────────────────────────────────────────────────
         // Each role in `chain` receives the previous role's output + modified
@@ -995,6 +997,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
             const chainResponse = chainResult.response || "";
             finalResponse += `\n\n--- Role: ${chainRole} ---\n${chainResponse}`;
             generatedFiles.push(...(chainResult.filesModified ?? []));
+            allTurnLog.push(...(chainResult.turnLog ?? []));
             chainContext = chainResponse;
             if (!handoffMessage && chainResult.handoff_message) handoffMessage = chainResult.handoff_message;
           }
@@ -1053,7 +1056,7 @@ export function createSubAgentTools(ctx: ToolContext): Tool[] {
         };
         writeFile(LAST_RESULT_PATH, JSON.stringify(persistedResult, null, 2), "utf-8").catch(() => {});
 
-        return { response: finalResponse, generated_files: generatedFiles, handoff_message: handoffMessage, status: "completed" };
+        return { response: finalResponse, generated_files: generatedFiles, handoff_message: handoffMessage, status: "completed", turn_log: allTurnLog };
       },
       ctx.enableSecondary,
       "consult_secondary_agent"
