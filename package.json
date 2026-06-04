@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "lms dev",
-    "push": "lms push",
+    "push": "npm run rebuild:lmstudio && lms push",
+    "rebuild:lmstudio": "npm_config_runtime=node npm_config_target=25.5.0 npm_config_arch=arm64 npm rebuild better-sqlite3 || true",
+    "rebuild:dev": "npm rebuild better-sqlite3",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "test": "node --test tests/browserActions.test.js tests/fuzzySearch.test.js tests/handoffMessage.test.js tests/subAgentToolCallParser.test.js tests/promptPreprocessor.test.js tests/nodeNotifier.test.js tests/subAgentValidation.test.js tests/i18n.test.js tests/memoryTools.test.js tests/security.test.js tests/fileTools.test.js tests/pythonSandbox.test.js tests/ragHelpers.test.js tests/webTools.test.js tests/queryDatabase.test.js tests/subAgentOrchestration.test.js tests/gitTools.test.js tests/phaseL.test.js tests/phaseM234.test.js tests/phaseN7.test.js tests/phaseN9.test.js tests/phaseN8N10.test.js tests/phaseN14N15.test.js tests/phaseN12.test.js tests/phaseN16.test.js tests/phaseN13.test.js tests/phaseO2.test.js tests/integration.test.js",

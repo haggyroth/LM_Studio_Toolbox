@@ -2,9 +2,99 @@ import { tool, text, type Tool } from "@lmstudio/sdk";
 import { z } from "zod";
 import { join } from "path";
 import { readFile, rename } from "fs/promises";
+import { readFileSync, writeFileSync } from "fs";
 import type { ToolContext } from "./context";
 
 const DB_FILE = ".memories.db";
+const JSON_DB_FILE = ".memories.json";
+
+// ── JSON fallback ─────────────────────────────────────────────────────────────
+// Used when better-sqlite3's native binding can't be loaded (e.g. macOS code-
+// signing restrictions inside LM Studio's sandboxed process).  Stores memories
+// as a JSON file and exposes the same prepare/exec interface as better-sqlite3
+// for the exact query patterns used in this module.
+
+interface MemoryRecord { id: number; fact: string; tags: string; created_at: string; updated_at: string; }
+
+class JsonMemoryDb {
+  private records: MemoryRecord[] = [];
+  private nextId = 1;
+  private readonly path: string;
+
+  constructor(filePath: string) {
+    this.path = filePath;
+    try {
+      const data = JSON.parse(readFileSync(filePath, "utf-8"));
+      this.records = data.records ?? [];
+      this.nextId = data.nextId ?? (this.records.length ? Math.max(...this.records.map(r => r.id)) + 1 : 1);
+    } catch { /* file doesn't exist yet — start empty */ }
+  }
+
+  private _save() {
+    writeFileSync(this.path, JSON.stringify({ records: this.records, nextId: this.nextId }, null, 2), "utf-8");
+  }
+
+  exec(_sql: string): void { /* CREATE TABLE — no-op for JSON backend */ }
+
+  prepare(sql: string) {
+    const db = this;
+    const s = sql.toLowerCase().trim();
+    return {
+      run(...args: any[]): { lastInsertRowid: number; changes: number } {
+        if (s.startsWith("insert")) {
+          const [fact, tags, created_at, updated_at] = args;
+          const id = db.nextId++;
+          db.records.push({ id, fact, tags, created_at, updated_at });
+          db._save();
+          return { lastInsertRowid: id, changes: 1 };
+        }
+        if (s.startsWith("update")) {
+          // UPDATE memories SET fact=?, tags=?, updated_at=? WHERE id=?
+          const [fact, tags, updated_at, id] = args;
+          const rec = db.records.find(r => r.id === id);
+          if (rec) { rec.fact = fact; rec.tags = tags; rec.updated_at = updated_at; db._save(); }
+          return { lastInsertRowid: 0, changes: rec ? 1 : 0 };
+        }
+        if (s.startsWith("delete")) {
+          const [id] = args;
+          const before = db.records.length;
+          db.records = db.records.filter(r => r.id !== id);
+          if (db.records.length !== before) db._save();
+          return { lastInsertRowid: 0, changes: before - db.records.length };
+        }
+        return { lastInsertRowid: 0, changes: 0 };
+      },
+      get(...args: any[]): any {
+        // SELECT 1 FROM memories WHERE LOWER(fact) = LOWER(?)
+        if (s.includes("lower(fact)")) {
+          return db.records.find(r => r.fact.toLowerCase() === String(args[0]).toLowerCase().trim()) ?? null;
+        }
+        // SELECT ... FROM memories WHERE id = ?
+        if (s.includes("where id = ?")) {
+          return db.records.find(r => r.id === args[0]) ?? null;
+        }
+        return null;
+      },
+      all(...args: any[]): any[] {
+        let filtered = [...db.records];
+        // WHERE tags LIKE ? ... LIMIT ?
+        if (s.includes("where tags like ?")) {
+          const tag = String(args[0]).replace(/%/g, "").toLowerCase();
+          filtered = filtered.filter(r => r.tags.toLowerCase().includes(tag));
+          return filtered.sort((a, b) => b.id - a.id).slice(0, Number(args[1]));
+        }
+        // WHERE fact LIKE ? OR tags LIKE ? ... LIMIT ?
+        if (s.includes("where fact like ? or tags like ?")) {
+          const q = String(args[0]).replace(/%/g, "").toLowerCase();
+          filtered = filtered.filter(r => r.fact.toLowerCase().includes(q) || r.tags.toLowerCase().includes(q));
+          return filtered.sort((a, b) => b.id - a.id).slice(0, Number(args[2]));
+        }
+        // Default ORDER BY id DESC LIMIT ?
+        return filtered.sort((a, b) => b.id - a.id).slice(0, Number(args[0]));
+      },
+    };
+  }
+}
 
 /**
  * Module-level connection cache keyed by absolute DB path.
@@ -20,22 +110,31 @@ export async function getDb(cwd: string): Promise<{ db: any; migrationDone: bool
   let entry = _dbCache.get(dbPath);
   if (entry) return entry;
 
-  // Use require() rather than dynamic import(): in a CJS-compiled module,
-  // `await import()` of a native addon goes through a different resolution
-  // path that can fail on some Node versions even when require() works fine.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const Database: new (path: string) => any = require("better-sqlite3");
-  const db = new Database(dbPath);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memories (
-      id          INTEGER PRIMARY KEY AUTOINCREMENT,
-      fact        TEXT    NOT NULL,
-      tags        TEXT    NOT NULL DEFAULT '',
-      created_at  TEXT    NOT NULL,
-      updated_at  TEXT    NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_memories_tags ON memories(tags);
-  `);
+  let db: any;
+  try {
+    // Use require() rather than dynamic import(): in a CJS-compiled module,
+    // `await import()` of a native addon goes through a different resolution
+    // path that can fail on some Node versions even when require() works fine.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Database: new (path: string) => any = require("better-sqlite3");
+    db = new Database(dbPath);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS memories (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        fact        TEXT    NOT NULL,
+        tags        TEXT    NOT NULL DEFAULT '',
+        created_at  TEXT    NOT NULL,
+        updated_at  TEXT    NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_memories_tags ON memories(tags);
+    `);
+  } catch {
+    // Native binding unavailable — falls back to a JSON-backed store.
+    // This happens when the process (e.g. LM Studio's sandboxed runtime)
+    // rejects unsigned native addons due to macOS code-signing restrictions.
+    db = new JsonMemoryDb(join(cwd, JSON_DB_FILE));
+  }
+
   entry = { db, migrationDone: false };
   _dbCache.set(dbPath, entry);
   return entry;
