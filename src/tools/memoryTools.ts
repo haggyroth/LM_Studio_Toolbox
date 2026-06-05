@@ -37,46 +37,45 @@ class JsonMemoryDb {
   exec(_sql: string): void { /* CREATE TABLE — no-op for JSON backend */ }
 
   prepare(sql: string) {
-    const db = this;
     const s = sql.toLowerCase().trim();
     return {
-      run(...args: any[]): { lastInsertRowid: number; changes: number } {
+      run: (...args: any[]): { lastInsertRowid: number; changes: number } => {
         if (s.startsWith("insert")) {
           const [fact, tags, created_at, updated_at] = args;
-          const id = db.nextId++;
-          db.records.push({ id, fact, tags, created_at, updated_at });
-          db._save();
+          const id = this.nextId++;
+          this.records.push({ id, fact, tags, created_at, updated_at });
+          this._save();
           return { lastInsertRowid: id, changes: 1 };
         }
         if (s.startsWith("update")) {
           // UPDATE memories SET fact=?, tags=?, updated_at=? WHERE id=?
           const [fact, tags, updated_at, id] = args;
-          const rec = db.records.find(r => r.id === id);
-          if (rec) { rec.fact = fact; rec.tags = tags; rec.updated_at = updated_at; db._save(); }
+          const rec = this.records.find(r => r.id === id);
+          if (rec) { rec.fact = fact; rec.tags = tags; rec.updated_at = updated_at; this._save(); }
           return { lastInsertRowid: 0, changes: rec ? 1 : 0 };
         }
         if (s.startsWith("delete")) {
           const [id] = args;
-          const before = db.records.length;
-          db.records = db.records.filter(r => r.id !== id);
-          if (db.records.length !== before) db._save();
-          return { lastInsertRowid: 0, changes: before - db.records.length };
+          const before = this.records.length;
+          this.records = this.records.filter(r => r.id !== id);
+          if (this.records.length !== before) this._save();
+          return { lastInsertRowid: 0, changes: before - this.records.length };
         }
         return { lastInsertRowid: 0, changes: 0 };
       },
-      get(...args: any[]): any {
+      get: (...args: any[]): any => {
         // SELECT 1 FROM memories WHERE LOWER(fact) = LOWER(?)
         if (s.includes("lower(fact)")) {
-          return db.records.find(r => r.fact.toLowerCase() === String(args[0]).toLowerCase().trim()) ?? null;
+          return this.records.find(r => r.fact.toLowerCase() === String(args[0]).toLowerCase().trim()) ?? null;
         }
         // SELECT ... FROM memories WHERE id = ?
         if (s.includes("where id = ?")) {
-          return db.records.find(r => r.id === args[0]) ?? null;
+          return this.records.find(r => r.id === args[0]) ?? null;
         }
         return null;
       },
-      all(...args: any[]): any[] {
-        let filtered = [...db.records];
+      all: (...args: any[]): any[] => {
+        let filtered = [...this.records];
         // WHERE tags LIKE ? ... LIMIT ?
         if (s.includes("where tags like ?")) {
           const tag = String(args[0]).replace(/%/g, "").toLowerCase();

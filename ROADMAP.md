@@ -336,3 +336,11 @@ Add an `interrupt_sub_agent(message)` tool that injects a correction into the su
 | N.14 | `rename_symbol` — workspace-wide atomic rename | ~1 day | ✅ Done |
 | N.15 | `edit_file_with_diff` — diff-based editing | ~1 day | ✅ Done |
 | N.16 | Sub-agent mid-task steering | ~1 day | ✅ Done |
+| O.1 | Integration tests + full validator coverage | ~3h | ✅ Done |
+| O.2 | 429 rate-limit retry with `Retry-After` | ~2h | ✅ Done |
+| O.3 | Sub-agent execution log + `turn_log` field | ~3h | ✅ Done |
+| O.4 | Memory deduplication (exact-match, case-insensitive) | ~1h | ✅ Done |
+| O.5 | `search_directory` `max_matches` param | ~30m | ✅ Done |
+| O.6 | `subAgentShowExecutionLog` config field | ~30m | ✅ Done |
+| O.7 | SQLite JSON fallback backend for memory tools | ~3h | ✅ Done |
+| O.8 | `query_database` actionable error on macOS sandbox | ~30m | ✅ Done |

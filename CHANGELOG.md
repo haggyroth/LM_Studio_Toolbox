@@ -13,6 +13,59 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
+## [3.14.1] — 2026-06-04
+
+### Changed
+- **`manifest.json` owner updated to `puppytucker`** — aligns the plugin registry owner field with the active LM Studio Hub account so `lms push` succeeds.
+- **`push` script simplified** — removed the `rebuild:lmstudio` pre-step that was included in earlier versions. The step does not fix macOS code-signing restrictions and broke the development test environment when run.
+
+### Fixed
+- **`query_database` returns an actionable error on macOS** — when LM Studio's hardened runtime rejects the `better-sqlite3` native addon due to Team ID mismatch (`dlopen` / code signature error), the tool now returns a clear message explaining the restriction and suggesting a standalone Node environment, rather than surfacing a raw crash dump.
+
+---
+
+## [3.14.0] — 2026-06-04
+
+### Added
+- **`search_directory`: `max_matches` parameter** — controls the upper bound on returned matches (default 100, range 1–500). All three internal match-cap paths now respect this value. A truncation notice is appended when the limit is reached.
+- **`subAgentShowExecutionLog` config field** — boolean setting (default `true`) that controls whether a compact `[Execution log: N tool calls]` block is appended to every sub-agent response. Set to `false` to suppress.
+- **Memory JSON fallback backend** — a pure-JS `JsonMemoryDb` class activates automatically when `require("better-sqlite3")` fails (e.g. LM Studio's macOS code-signing sandbox). All memory tools (`save_memory`, `list_memories`, `search_memories`, `update_memory`, `delete_memory`) work transparently regardless of backend.
+
+---
+
+## [3.13.4] — 2026-06-04
+
+### Added
+- **Sub-agent execution log** — every `consult_secondary_agent` response now appends a compact `[Execution log: N tool calls]` block listing each tool call, its key argument, and the outcome. Errors auto-expand with detail. Controlled by the new `subAgentShowExecutionLog` config field.
+- **`search_directory` documented in `subagent_docs.md`** — added to the File System section with parameter descriptions and structured return format.
+- **`search_directory` added to tool-selection priority notes** — clarifies when to use `search_directory` (multi-file) vs `search_in_file` (single file).
+- **`search_directory` added to LITE key-tools list** in `toolsDocumentation.ts`.
+
+### Fixed
+- **Memory deduplication** — `save_memory` now checks `LOWER(fact) = LOWER(?)` before inserting. Exact-match duplicates (case-insensitive) return `{ deduplicated: true, id: existingId }` instead of inserting a second row. `insertAutoMemory` silently skips duplicates on the same path.
+
+---
+
+## [3.13.2] — 2026-06-04
+
+### Added
+- **429 rate-limit retry in sub-agent** — `fetchWithRetry` honours the `Retry-After` response header (seconds or HTTP-date format), waits the indicated time capped by the remaining deadline, and retries up to `MAX_RATE_LIMIT_RETRIES` (3) times before surfacing the error. Separate retry budget from network-error retries.
+
+---
+
+## [3.13.0] — 2026-06-04
+
+### Added
+- **Integration test suite** (`tests/integration.test.js`) — mock-pipeline tests covering the full `consult_secondary_agent` round-trip including: execution log shape, error detail expansion, log suppression via config, stall/timeout/cancel status fields, and `turn_log` accumulation across chained roles. Live LM Studio smoke test auto-skips when unreachable.
+- **`turn_log` field on all return paths** — `runAgentLoop` now attaches `turnLog` to stalled, failed, timeout, and cancelled results in addition to completed ones. Outer wrapper accumulates logs from primary + chain roles into a single `turn_log` array on the final response.
+- **`status` field preserved on error path** — outer wrapper previously stripped `status` when propagating `primaryResult.error`. Fixed to forward `{ error, status, turn_log }`.
+
+### Changed
+- **Validator coverage expanded** — `toolCallValidator.ts` now validates 16 additional tools: `read_file_range`, `search_in_file`, `append_file`, `find_files`, `fuzzy_find_local_files`, `delete_files_by_pattern`, `web_search` / `duckduckgo_search`, `wikipedia_search`, `fetch_web_content` / `rag_web_content`, `run_python`, `run_javascript`, `run_test_command`, `insert_at_line`, `delete_lines_in_file`, `delete_path`, `move_file`, `copy_file`, `make_directory`, `search_directory`, `rag_local_files`.
+- **`subagent_docs.md` rewritten** — consolidated tool reference with accurate parameter names, structured examples, and tool-selection priority guidance.
+
+---
+
 ## [3.12.3] — 2026-06-03
 
 ### Changed
