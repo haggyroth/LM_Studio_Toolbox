@@ -22,6 +22,10 @@ export const de: LocaleDict = {
       displayName: "Abruf-Ähnlichkeitsschwellwert",
       subtitle: "Mindestrelevanzwert, ab dem ein Textabschnitt als relevant gilt.",
     },
+    allowDotnetExecution: {
+      displayName: "DotNet-Ausführung erlauben",
+      subtitle: "Aktiviert das 'run_dotnet'-Tool. GEFAHR: .NET-CLI-Befehle laufen auf Ihrem Rechner.",
+    },
     allowJavascriptExecution: {
       displayName: "JavaScript-Ausführung erlauben",
       subtitle: "Aktiviert das 'run_javascript'-Tool. GEFAHR: Code läuft auf Ihrem Rechner.",

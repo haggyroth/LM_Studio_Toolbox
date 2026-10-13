@@ -33,7 +33,7 @@ src/
                              #   getDenoPath, getPythonPath
     fileTools.ts             # File I/O: read, write, edit, search, navigate, delete
     codeTools.ts             # Code execution: JS (Deno sandbox), Python (audit-hook sandbox),
-                             #   shell commands, terminal, background tasks
+                             #   .NET CLI, shell commands, terminal, background tasks
     webTools.ts              # Web: search (DDG/Google/Bing fallback chain), fetch, RAG, Wikipedia
     browserTools.ts          # Puppeteer browser sessions and one-shot page rendering
     gitTools.ts              # Git operations via simple-git (status/diff/add/commit/pull/push)
@@ -53,6 +53,7 @@ tests/
   nodeNotifier.test.js            # Dynamic import regression for node-notifier
   promptPreprocessor.test.js      # getSubAgentDocsCandidatePaths unit test
   pythonSandbox.test.js           # Python audit-hook sandbox smoke tests (12 cases)
+  dotnetTools.test.js             # run_dotnet env helpers, permission, path, and CLI smoke tests
   security.test.js                # validatePath, parseProtectedPaths, safeFetch SSRF, isBlockedIp (53 cases)
   subAgentToolCallParser.test.js  # parseSubAgentResponseMessage (50 cases)
   subAgentValidation.test.js      # validateToolCall unit tests

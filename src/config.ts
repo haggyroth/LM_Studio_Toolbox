@@ -46,6 +46,10 @@ export const pluginConfigSchematics = createConfigSchematics()
   }, 0.5)
 
   // ── Execution Permissions ──────────────────────────────────────────────────
+  .field("allowDotnetExecution", "boolean", {
+    displayName: c.allowDotnetExecution.displayName,
+    subtitle: c.allowDotnetExecution.subtitle,
+  }, false)
   .field("allowJavascriptExecution", "boolean", {
     displayName: c.allowJavascriptExecution.displayName,
     subtitle: c.allowJavascriptExecution.subtitle,

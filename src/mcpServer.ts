@@ -58,6 +58,7 @@ interface McpConfig {
   allowGit?: boolean;
   allowGitHubTools?: boolean;
   allowDb?: boolean;
+  allowDotnet?: boolean;
   allowJavascript?: boolean;
   allowPython?: boolean;
   allowShell?: boolean;
@@ -73,6 +74,7 @@ const DEFAULT_CONFIG: McpConfig = {
   allowGit: true,
   allowGitHubTools: false,
   allowDb: false,
+  allowDotnet: false,
   allowJavascript: false,
   allowPython: false,
   allowShell: false,
@@ -125,6 +127,7 @@ async function main() {
     fullState: makeFullState(cwd),
     client: null,                          // no LM Studio client
     pluginConfig: { get: () => null },     // no plugin settings panel
+    allowDotnet:        config.allowDotnet        ?? false,
     allowJavascript:    config.allowJavascript    ?? false,
     allowPython:        config.allowPython        ?? false,
     allowTerminal:      config.allowTerminal      ?? false,
@@ -208,7 +211,7 @@ async function main() {
     `  Tools:        ${tools.length} registered\n` +
     `  Config:       ${CONFIG_PATH}\n` +
     `  Git:          ${ctx.allowGit ? "enabled" : "disabled"}\n` +
-    `  Code exec:    ${(ctx.allowPython || ctx.allowJavascript || ctx.allowShell) ? "enabled" : "disabled"}\n` +
+    `  Code exec:    ${(ctx.allowDotnet || ctx.allowPython || ctx.allowJavascript || ctx.allowShell) ? "enabled" : "disabled"}\n` +
     `  Wikipedia:    ${ctx.enableWikipedia ? "enabled" : "disabled"}\n`
   );
 }

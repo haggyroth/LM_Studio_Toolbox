@@ -78,6 +78,7 @@ export const toolsProvider: ToolsProvider = async (ctl) => {
     fullState,
     client,
     pluginConfig,
+    allowDotnet:     allowAllCode || pluginConfig.get("allowDotnetExecution"),
     allowJavascript: allowAllCode || pluginConfig.get("allowJavascriptExecution"),
     allowPython:     allowAllCode || pluginConfig.get("allowPythonExecution"),
     allowTerminal:   allowAllCode || pluginConfig.get("allowTerminalExecution"),

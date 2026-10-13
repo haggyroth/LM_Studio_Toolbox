@@ -27,6 +27,10 @@ export const en: LocaleDict = {
       subtitle: "The minimum similarity score for a chunk to be considered relevant.",
     },
 
+    allowDotnetExecution: {
+      displayName: "Allow DotNet Execution",
+      subtitle: "Enable the 'run_dotnet' tool. DANGER: .NET CLI commands run on your machine.",
+    },
     allowJavascriptExecution: {
       displayName: "Allow JavaScript Execution",
       subtitle: "Enable the 'run_javascript' tool. DANGER: Code runs on your machine.",

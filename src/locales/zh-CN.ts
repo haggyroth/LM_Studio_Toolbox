@@ -26,6 +26,11 @@ export const zhCN: LocaleDict = {
       subtitle:
         "文本块被视为相关的最低相似度分数。中文内容建议调低至 0.35–0.45。",
     },
+    allowDotnetExecution: {
+      displayName: "允许执行 DotNet",
+      subtitle:
+        "启用 'run_dotnet' 工具。⚠️ 危险：.NET CLI 命令将在您的计算机上运行。",
+    },
     allowJavascriptExecution: {
       displayName: "允许执行 JavaScript",
       subtitle:

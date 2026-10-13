@@ -14,6 +14,7 @@ export interface LocaleDict {
     retrievalLimit: { displayName: string; subtitle: string };
     retrievalAffinityThreshold: { displayName: string; subtitle: string };
 
+    allowDotnetExecution: { displayName: string; subtitle: string };
     allowJavascriptExecution: { displayName: string; subtitle: string };
     allowPythonExecution: { displayName: string; subtitle: string };
     allowTerminalExecution: { displayName: string; subtitle: string };

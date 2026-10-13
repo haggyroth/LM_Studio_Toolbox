@@ -48,6 +48,7 @@ A feature-rich [LM Studio](https://lmstudio.ai/) plugin that gives your local LL
 
 - **Sandboxed Python:** `run_python` uses `sys.addaudithook` to block network access, subprocess spawning, and writes outside the workspace.
 - **JavaScript:** `run_javascript` runs Node.js code in a temp file.
+- **.NET CLI:** `run_dotnet` runs any .NET CLI command with OS-aware host environment propagation.
 - **Test Runner:** `run_test_command` executes your project's test suite (`npm test`, `pytest`, etc.) from inside a sub-agent loop.
 - **Linting:** `lint_project` runs your project's linter and returns structured output.
 - **Terminal:** `execute_command` (background) and `run_in_terminal` (interactive) for shell access.
@@ -143,7 +144,8 @@ All settings are accessible in the LM Studio **Plugins** tab. Key options:
 | Enable Memory | Activates persistent memory tools | off |
 | Memory Auto-Capture | Auto-distill key facts from each session | off |
 | Default Workspace Path | Startup working directory | (LM Studio home) |
-| Allow Code Execution | Enables Python, JS, shell, terminal tools | off |
+| Allow DotNet Execution | Enables the `run_dotnet` tool | off |
+| Allow All Code Execution | Enables all execution tools, including `run_dotnet` | off |
 | Allow Browser Control | Enables browser automation tools | off |
 | Allow GitHub Tools | Enables `gh_*` CLI tools | off |
 | Protected Paths | Comma-separated paths the model cannot access | (empty) |
@@ -232,12 +234,13 @@ All settings are accessible in the LM Studio **Plugins** tab. Key options:
 </details>
 
 <details>
-<summary><strong>Code Execution (7 tools)</strong></summary>
+<summary><strong>Code Execution (10 tools)</strong></summary>
 
 | Tool | Description |
 |------|-------------|
 | `run_python` | Sandboxed Python execution |
 | `run_javascript` | Node.js script execution |
+| `run_dotnet` | Run any .NET CLI command, global option, application, or installed extension |
 | `run_test_command` | Run the project's test suite |
 | `lint_project` | Run the project's linter |
 | `execute_command` | Background shell command |

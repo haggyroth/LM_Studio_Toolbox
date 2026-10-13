@@ -22,6 +22,10 @@ export const zhTW: LocaleDict = {
       displayName: "擷取相關性閾值",
       subtitle: "文字區塊被視為相關所需的最低相似度分數。中文內容建議調低至 0.35–0.45。",
     },
+    allowDotnetExecution: {
+      displayName: "允許執行 DotNet",
+      subtitle: "啟用 'run_dotnet' 工具。危險：.NET CLI 指令將在您的電腦上執行。",
+    },
     allowJavascriptExecution: {
       displayName: "允許執行 JavaScript",
       subtitle: "啟用 'run_javascript' 工具。危險：程式碼將在您的電腦上執行。",

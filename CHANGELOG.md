@@ -11,6 +11,9 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ## [Unreleased]
 
+### Added
+- **`run_dotnet` tool and permission** — runs any .NET CLI command with OS-aware host environment propagation and a dedicated, disabled-by-default setting.
+
 ---
 
 ## [3.14.1] — 2026-06-04

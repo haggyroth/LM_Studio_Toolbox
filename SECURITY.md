@@ -11,7 +11,7 @@ constrain.
 
 | Restriction | How |
 |---|---|
-| Code execution disabled by default | `run_python`, `run_javascript`, `execute_command`, browser control all default to **off** in plugin settings. Enable only what you need. |
+| Code execution disabled by default | `run_python`, `run_javascript`, `run_dotnet`, `execute_command`, browser control all default to **off** in plugin settings. Enable only what you need. |
 | Python sandbox | `run_python` uses `sys.addaudithook` (Python 3.8+) to block network access, subprocess spawning, and writes outside the workspace. Reads are unrestricted (needed for stdlib imports). |
 | JavaScript sandbox | `run_javascript` runs inside Deno with explicit deny flags: no network, no env, no sys, no subprocess, fs restricted to CWD. |
 | Sub-agent time limit | The secondary agent loop is bounded by the **Sub-Agent Time Limit** config (default 600 s). The deadline is enforced on every iteration and on all outbound web fetches within the loop. |
@@ -27,6 +27,7 @@ constrain.
 |---|---|
 | `change_directory` | Intentionally unrestricted — the model must be able to `cd ..` and navigate to absolute paths. After changing directory, all subsequent file operations are validated against the **new** CWD. Configure `protectedPaths` to block specific directories absolutely. |
 | Browser tools (SSRF) | `browser_session_open` and `browser_open_page` accept any http(s) URL including `http://localhost` and RFC-1918 addresses — the SSRF guard applies only to Node-side `fetch()` calls, not to Puppeteer navigations. Only enable browser control if you trust the model's URL choices. |
+| `run_dotnet` | .NET CLI commands are unrestricted and may access the network or modify files outside the workspace. Only enable if you trust the model and project completely. |
 | `execute_command` / `run_in_terminal` | Shell commands are entirely unrestricted — no path filtering, no network blocking. Only enable if you trust the model completely. |
 | DNS rebinding (SSRF residual) | `safeFetch()` pre-checks DNS to reject hostnames that resolve to private IPs, but there is an unavoidable TOCTOU window between that check and the actual HTTP connection. A sophisticated DNS rebinding attack that changes the resolution between the two lookups can still bypass the guard. This is a fundamental limitation of application-layer SSRF protection; network-layer controls (egress firewall rules) are the correct mitigation if this threat model applies to your deployment. |
 

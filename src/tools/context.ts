@@ -27,6 +27,7 @@ export interface ToolContext {
   pluginConfig: any;
 
   // --- Resolved permissions (derived from pluginConfig at startup) ---
+  allowDotnet: boolean;
   allowJavascript: boolean;
   allowPython: boolean;
   allowTerminal: boolean;
