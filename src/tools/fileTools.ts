@@ -303,7 +303,7 @@ export function createFileTools(ctx: ToolContext): Tool[] {
           if (rep.start_line > rep.end_line) { errors.push(`Invalid range: start_line ${rep.start_line} > end_line ${rep.end_line}`); continue; }
           const chunk = lines.slice(rep.start_line - 1, rep.end_line).join("\n");
           if (!chunk.includes(rep.old_string)) { errors.push(`Could not find old_string between lines ${rep.start_line}-${rep.end_line}`); continue; }
-          const newChunkLines = chunk.replace(rep.old_string, rep.new_string).split("\n");
+          const newChunkLines = chunk.replace(rep.old_string, () => rep.new_string).split("\n");
           lines.splice(rep.start_line - 1, rep.end_line - rep.start_line + 1, ...newChunkLines);
         }
 

@@ -192,7 +192,25 @@ describe("fileTools integration", () => {
     });
   });
 
-  // ── insert_at_line ─────────────────────────────────────────────────────────
+  // ── multi_replace_text ─────────────────────────────────────────────────────
+
+  describe("multi_replace_text", () => {
+    it("preserves dollar signs in replacement text", async () => {
+      await callTool(tools, "save_file", { file_name: "multi_replace.txt", content: "alpha\nbeta" });
+      const result = await callTool(tools, "multi_replace_text", {
+        file_name: "multi_replace.txt",
+        replacements: [
+          { start_line: 1, end_line: 1, old_string: "alpha", new_string: "$$" },
+          { start_line: 2, end_line: 2, old_string: "beta", new_string: "cost: $$100" },
+        ],
+      });
+      assert.ok(result.success);
+      const on_disk = await fs.readFile(path.join(tmpDir, "multi_replace.txt"), "utf-8");
+      assert.equal(on_disk, "$$\ncost: $$100");
+    });
+  });
+
+  // ── insert_at_line ────────────────────────────────────────────────────────
 
   describe("insert_at_line", () => {
     before(async () => {
